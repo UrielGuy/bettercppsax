@@ -1,0 +1,5 @@
+[submodule "yaml-cpp"]
+	path = yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp
+[submodule "rapidjson"]
+	path = rapidjson
