@@ -37,14 +37,14 @@ enum class JSONTokenType {
 
 // Every possible value type for a JSON item. so we can pass the value, with that information, as a single variable.
 using json_val = std::variant<
-    int64_t, 
-    uint64_t, 
-    double, 
-    std::string_view, 
+    int64_t,
+    uint64_t,
+    double,
+    std::string_view,
     bool>;
 
-// A struct representing a single value - the token type, and the value, if it exists. 
-// "Key" token type is a string. 
+// A struct representing a single value - the token type, and the value, if it exists.
+// "Key" token type is a string.
 struct JSONToken {
     JSONTokenType type;
     json_val value;
@@ -54,21 +54,21 @@ struct JSONToken {
 /// for specifying the handling of the next token.
 /// </summary>
 enum class ParseResultType {
-    // Send the next token to the same parser. 
+    // Send the next token to the same parser.
     KeepParsing,
-    // Send the next token to the previous parser, who submitted the current one. 
+    // Send the next token to the previous parser, who submitted the current one.
     ParserDone,
     // Send the next token to the parser specified in the ParseResult
     NewParser,
     // Start using a new parser, starting with the current token rather than the next token.
     NewParser_ReplayCurrent,
-    // An error has occured, stop parsing. 
+    // An error has occured, stop parsing.
     Error
 };
 
 /// <summary>
 /// Denotes the action to take after parsing a token. See ParseResultType for more details.
-/// This struct adds the optional error or new parser. 
+/// This struct adds the optional error or new parser.
 /// </summary>
 struct ParseResult {
     ParseResultType type;
@@ -127,24 +127,31 @@ class SaxParser {
         void OnSequenceEnd() final {  ParseToken({ .type = JSONTokenType::end_array }); }
         void OnMapStart(const YAML::Mark& mark, const std::string& tag, YAML::anchor_t anchor, YAML::EmitterStyle::value style) final { if (!tag.empty()) ParseToken({ .type = JSONTokenType::key}); ParseToken({ .type = JSONTokenType::start_object }); }
         void OnMapEnd() final {  ParseToken({ .type = JSONTokenType::end_object }); }
-        void OnAnchor(const YAML::Mark& /*mark*/, const std::string& /*anchor_name*/) {   }    
+        void OnAnchor(const YAML::Mark& /*mark*/, const std::string& /*anchor_name*/) {   }
 
 
     private:
         SaxParser& owner;
     };
-    
-public: 
+
+public:
 
     SaxParser() {};
     explicit SaxParser(const std::function<void(std::string_view)>& on_error) : on_error(on_error) {}
 
-    void Parse(std::istream& input, const JSONParseFunc& root_parser) {
+    void ParseJSON(std::istream& input, const JSONParseFunc& root_parser) {
         parser_stack.push(root_parser);
         rapidjson::Reader reader;
         auto wrapper = rapidjson::IStreamWrapper(input);
         inner_parser ip{ *this };
         reader.Parse(wrapper, ip);
+    }
+
+    void ParseYAML(std::istream& input, const JSONParseFunc& root_parser) {
+        parser_stack.push(root_parser);
+        YAML::Parser parser(input);
+        inner_parser ip{ *this };
+        while (parser.HandleNextDocument(ip));
     }
 
 private:
