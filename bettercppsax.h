@@ -191,10 +191,10 @@ inline ParseResult ParseString(std::string& target) {
         .new_parser = [&target](const JSONToken& token) mutable {
             if (token.type == JSONTokenType::string) {
                 target = std::get<std::string_view>(token.value);
-                return ParseResult{.type = ParseResultType::ParserDone };
+                return ParserDone()
             }
             else {
-                return ParseResult{.type = ParseResultType::Error, .error = "Unexpected data type"};
+                return ParseError("Unexpected data type");
             }
          }
     };
@@ -204,9 +204,7 @@ inline ParseResult ParseString(std::string& target) {
 template<typename T>
 [[nodiscard]]
 inline ParseResult ParseInt(T& target) {
-    return ParseResult{
-        .type = ParseResultType::NewParser,
-        .new_parser = [&target](const JSONToken& token) mutable {
+    return NewParser([&target](const JSONToken& token) mutable {
             if (token.type == JSONTokenType::number_integer) {
                 target = std::get<int64_t>(token.value);
                 return ParserDone();
@@ -220,7 +218,7 @@ inline ParseResult ParseInt(T& target) {
                 return ParseError("Unexpected data type" );
             }
          }
-    };
+    );
 }
 
 template<typename T>
@@ -231,7 +229,7 @@ inline ParseResult ParseUnsigned(T& target) {
         .new_parser = [&target](const JSONToken& token) mutable {
             if (token.type == JSONTokenType::number_unsigned) {
                 target = (T)std::get<uint64_t>(token.value);
-                return ParseResult{.type = ParseResultType::ParserDone };
+                return ParserDone()
             }
             else if (token.type == JSONTokenType::string) {
                 const auto& data = std::get<std::string_view>(token.value);
@@ -239,7 +237,7 @@ inline ParseResult ParseUnsigned(T& target) {
                 else return ParseError("Failed parsing integer");
             }
             else {
-                return ParseResult{.type = ParseResultType::Error, .error = "Unexpected data type"};
+                return ParseError("Unexpected data type");
             }
          }
     };
@@ -307,7 +305,7 @@ inline ParseResult SkipNextElement() {
                      depth--;
                      break;
              }
-             return ParseResult{.type = ((depth == 0) ? ParseResultType::ParserDone : ParseResultType::KeepParsing) };
+             return depth ? KeepParsing() : ParserDone();
         }
     };
 }
@@ -320,12 +318,12 @@ inline ParseResult ParseList(COLLECTION& collection, std::function<JSONParseFunc
         .new_parser = [&collection, parse_item_function, first = true](const JSONToken& token) mutable {
             if (first) {
                 first = false;
-                if (token.type != JSONTokenType::start_array) return ParseResult{.type = ParseResultType::Error, .error = "No open array token for list" };
-                else return ParseResult{.type = ParseResultType::KeepParsing };
+                if (token.type != JSONTokenType::start_array) return ParseError("No open array token for list");
+                else return KeepParsing();
             }
 
             if (token.type == JSONTokenType::end_array) {
-                return ParseResult{.type = ParseResultType::ParserDone };
+                return ParserDone();
             }
 
             return ParseResult{ .type = ParseResultType::NewParser_ReplayCurrent, .new_parser = parse_item_function(collection.emplace_back()) };
