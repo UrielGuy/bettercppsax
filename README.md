@@ -88,3 +88,65 @@ struct ParseResult {
 
 using JSONParseFunc = std::function<ParseResult(const JSONToken&)>;
 ```
+
+This allows us to write the actual core logic in the following form: 
+
+```c++
+class Parser {
+    std::stack<JSONParseFunc> parser_stack;
+public:
+     bool ParseToken(const JSONToken& token) {
+        auto& cur_parser = owner.parser_stack.top();
+        const auto& res = cur_parser(token);
+
+     switch (res.type) {
+        case ParseResultType::KeepParsing: return true;
+        case ParseResultType::ParserDone: owner.parser_stack.pop(); return true;
+        case ParseResultType::Error: owner.on_error(std::format("Bad JSON item: {}", res.error.value())); return false;
+        case ParseResultType::NewParser: owner.parser_stack.push(res.new_parser.value()); return true;
+        case ParseResultType::NewParser_ReplayCurrent: owner.parser_stack.push(res.new_parser.value());  return ParseToken(token);
+        default: return false;
+        }
+    }
+
+};
+```
+
+It is now pussible to write full parsers, using features like designated initializers. An example parser might look like: 
+
+```c++
+ParseResult ParseString(const JSONToken& token, std::string& target) {
+    if (token.type == JSONTokenType::string) {
+        target = std::get<std::string_view>(token.value);
+        return ParseResult{.type = ParseResultType::ParserDone };
+    }
+    else {
+        return ParseResult{.type = ParseResultType::Error, .error = "Unexpected data type"};
+    }
+}
+
+ParseResult ParseObject (const JSONtoken& token, object& target) {
+    if (token.type == JSONTokenType::start_object) {
+         return ParseResult { .type = ParseResultType::KeepParsing; }
+    }
+    else if (token.type == JSONTokenType::key) {
+        const auto& key = std::get<std::string_view>(target.value);
+        if (key == "prop1") return ParseResult {
+            .type = ParseResultType::NewParser,
+            .new_parser = [&target](const JSONToken& token) mutable { ParseString(toekn, target.prop1); }
+        };
+        else if (key == "prop2") return ParseResult {
+            .type = ParseResultType::NewParser,
+            .new_parser = [&target](const JSONToken& token) mutable { ParseString(toekn, target.prop1); }
+        };
+
+    }
+    else if (token.type == JSONTokenType::end_object) {
+        return ParseResult { .type = ParseResultType::DoneParsing; }
+    }
+    else {
+       return ParseResult { .type = ParseResultType::Error, .error = "Unexpected token type" }; 
+    }
+}
+```
+
