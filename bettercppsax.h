@@ -191,7 +191,7 @@ inline ParseResult ParseString(std::string& target) {
         .new_parser = [&target](const JSONToken& token) mutable {
             if (token.type == JSONTokenType::string) {
                 target = std::get<std::string_view>(token.value);
-                return ParserDone()
+                return ParserDone();
             }
             else {
                 return ParseError("Unexpected data type");
@@ -229,7 +229,7 @@ inline ParseResult ParseUnsigned(T& target) {
         .new_parser = [&target](const JSONToken& token) mutable {
             if (token.type == JSONTokenType::number_unsigned) {
                 target = (T)std::get<uint64_t>(token.value);
-                return ParserDone()
+                return ParserDone();
             }
             else if (token.type == JSONTokenType::string) {
                 const auto& data = std::get<std::string_view>(token.value);
@@ -352,4 +352,12 @@ inline JSONParseFunc ParseObject(const std::function<ParseResult(std::string_vie
         else if (token.type == JSONTokenType::key) return handler(std::get<std::string_view>(token.value));
         else return ParseError("Unexpected element type");
     };
+}
+
+template<typename OBJECT>
+[[nodiscard]]
+inline ParseResult ParseObject(OBJECT& object, const std::function<ParseResult(std::string_view key, OBJECT& object)>& handler) {
+    return NewParser(
+        ParseObject([&object, handler](std::string_view key) { return handler(key, object); })
+    );
 }

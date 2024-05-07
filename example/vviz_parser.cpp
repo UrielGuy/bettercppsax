@@ -81,7 +81,7 @@ private:
 
     static auto ParsePerformance(std::string_view key, drone_data& drone) {
         if (key == "id") return ParseUnsigned(drone.id);
-        else if (key == "agentDescription") return NewParser(ParseObject([&drone](std::string_view key) mutable { return ParseAgentData(key, drone); }));
+        else if (key == "agentDescription") return ParseObject<drone_data>(drone, ParseAgentData);
         else if (key == "payloadDescription") return ParseObjectList(drone.payload_actions, ParseDronePayload);
         else return SkipNextElement();
     }
@@ -97,7 +97,6 @@ public:
 };
 
 int main(int argc, char** argv) {
-
     show_data show;
     SaxParser parser;
     std::ifstream f(argv[1]);
