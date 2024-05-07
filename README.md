@@ -112,7 +112,7 @@ public:
 };
 ```
 
-It is now pussible to write full parsers, using features like designated initializers. An example parser might look like: 
+As far as the parser logic manager is concerened, we are done. It is now pussible to write full parsers, using features like designated initializers and mutable lambdas. An example parser might look like: 
 
 ```c++
 ParseResult ParseString(const JSONToken& token, std::string& target) {
@@ -150,3 +150,185 @@ ParseResult ParseObject (const JSONtoken& token, object& target) {
 }
 ```
 
+### Let's make it all pretty
+
+As much as this is already a powerful parser, it still requires a user to know quite a bit about the internal
+structure of what we do, and some repetision does occur, such as defining the parsers quite often.  We can
+add helper functions to help engineers write nicer code. The final goal is to completely hide `JSONToken`
+from them, and hide ParseResult in `auto` types. 
+
+#### Hiding ParseResult
+
+The first step to remove redundant code is to add function to make creating the objects easier:
+```C++
+[[nodiscard]]
+inline ParseResult KeepParsing() {
+    return ParseResult{ .type = ParseResultType::KeepParsing };
+}
+[[nodiscard]]
+inline ParseResult ParserDone() {
+    return ParseResult{ .type = ParseResultType::ParserDone };
+}
+
+[[nodiscard]]
+inline ParseResult ParseError(std::string_view error) {
+    return ParseResult{ .type = ParseResultType::Error, .error = (std::string)error };
+}
+
+[[nodiscard]]
+inline ParseResult NewParser(const JSONParseFunc parser) {
+    return ParseResult{ .type = ParseResultType::NewParser, .new_parser = parser };
+}
+
+```
+
+These clean up simple, default operations. This hides direct access to the `ParseResultType` enum, and makes it so that there is considerably less use of designated initializers, making the code cleaner.
+
+#### Parsing Primitives
+
+Given the base functions, and after parsing multiple primitives, these functionality can be reused. Given this example for an int: 
+```
+template<typename T>
+[[nodiscard]]
+inline ParseResult ParseInt(T& target) {
+    return NewParser([&target](const JSONToken& token) mutable {
+            if (token.type == JSONTokenType::number_integer) {
+                target = std::get<int64_t>(token.value);
+                return ParserDone();
+            }
+            else if (token.type == JSONTokenType::string) {
+                const auto& data = std::get<std::string_view>(token.value);
+                if (std::from_chars(data.data(), data.data() + data.size(), target).ec == std::errc{}) return ParserDone();
+                else return ParseError("Failed parsing integer");
+            }
+            else {
+                return ParseError("Unexpected data type" );
+            }
+         }
+    );
+}
+```
+
+This function is capable of parsing an integer from either a string or an integer primitive. similiar
+functions can be written for any other primitive, such as a string, a date, a floating point number, etc. 
+The library provides:
+* `ParseInteger`
+* `ParseUnsigned`
+* `ParseFloat`
+* `ParseString`
+* `ParseBool`
+
+If a user is intereseted in extanding the library externally, it is remarkebly easy as these are all just
+functions. One can easily add `ParseDate` or `ParseFormula`.
+
+#### Parsing types
+
+Parsing a type, usually represented as an object or a dictionary in the markup, required some state managment - mostly when does it start, when are keys legal, and when does it end. We have decided to help our users by supplying the following function: 
+
+```c++
+[[nodiscard]]
+inline JSONParseFunc ParseObject(const std::function<ParseResult(std::string_view key)>& handler) {
+    return [handler, first = true](const JSONToken& token) mutable {
+        if (first) {
+            first = false;
+            if (token.type == JSONTokenType::start_object) return KeepParsing();
+            else return ParseError("Expected object start");
+        }
+        else if (token.type == JSONTokenType::end_object) return ParserDone();
+        else if (token.type == JSONTokenType::key) return handler(std::get<std::string_view>(token.value));
+        else return ParseError("Unexpected element type");
+    };
+}
+```
+
+This function takes in another function that takes a key to a dictionary, and returns a parse result, and uses it inside of a parser function that manages the state of parsing an object, and makes it much easier toparse the object. Given all of our facilities we can now write the following: 
+
+```c++
+auto ParseObject(std::string_view key, object& target) {
+    if (key == "address") return ParseString(target.address);
+    else if (key == "id") return ParseUnsigned(target.id);
+    else if (key == job) return NewParser(ParseObject([&job = target.job](string_view key) mutable { return ParseJob(key, job); }
+}
+```
+
+#### Parsing Lists
+
+When parsing a list, we need to allocate new objects as they appear, and then parse them. We also need to understand when is the end of the list and stop parsing. This is done by the following functions: 
+
+```c++
+template<typename COLLECTION>
+[[nodiscard]]
+inline ParseResult ParseList(COLLECTION& collection, std::function<JSONParseFunc(typename COLLECTION::value_type&)> parse_item_function) {
+    return ParseResult{
+        .type = ParseResultType::NewParser,
+        .new_parser = [&collection, parse_item_function, first = true](const JSONToken& token) mutable {
+            if (first) {
+                first = false;
+                if (token.type != JSONTokenType::start_array) return ParseError("No open array token for list");
+                else return KeepParsing();
+            }
+
+            if (token.type == JSONTokenType::end_array) {
+                return ParserDone();
+            }
+
+            return ParseResult{ .type = ParseResultType::NewParser_ReplayCurrent, .new_parser = parse_item_function(collection.emplace_back()) };
+         }
+    };
+}
+```
+
+To make it easier to parse a list of objects, We supply the following function on top of the previous one: 
+
+```c++
+
+template<typename COLLECTION>
+[[nodiscard]]
+inline ParseResult ParseObjectList(COLLECTION& collection, const std::function<ParseResult(std::string_view key, typename COLLECTION::value_type&)>& parse_item_function) {
+    return ParseList(
+        collection,
+        [&, parse_item_function](typename COLLECTION::value_type& item) { return ParseObject([&, parse_item_function](std::string_view key) { return parse_item_function(key, item); });  }
+    );
+}
+```
+
+This brings us almost to the code in the example folder, with one more thing to go.
+
+#### Skipping unneeded parts
+
+As we must process ALL tokens in a document, it might be that there are parts we do not care about. Some keys in a dictionary that
+are not interesting, or optional parts we have no need for. For that we supply the following function: 
+
+```c++
+
+[[nodiscard]]
+inline ParseResult SkipNextElement() {
+    return ParseResult{
+        .type = ParseResultType::NewParser,
+        .new_parser = [depth = 0] (const JSONToken & token) mutable {
+             switch (token.type) {
+                 case JSONTokenType::start_object:
+                 case JSONTokenType::start_array:
+                     depth++;
+                     break;
+                 case JSONTokenType::end_object:
+                 case JSONTokenType::end_array:
+                     depth--;
+                     break;
+             }
+             return depth ? KeepParsing() : ParserDone();
+        }
+    };
+}
+```
+
+## Semantics
+
+A good way of thinking how this looks with all these helper functions is that your code get called to handle an event you
+wanted, and returns what shoukd happen next, in a way that builds a stack of handling - The next thing that might happen is that
+an int will be parsed, or a string, or a list of something or an object. once that thing happens you get control back until you 
+also decalre yourself as done. 
+
+## Full example
+
+Please look at the example directory in this repository
