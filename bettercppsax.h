@@ -130,18 +130,31 @@ inline ParseResult ParseNumber(Numeric auto& target) {
         .type = ParseResultType::NewParser,
         .new_parser = [&target](const JSONToken& token) mutable {
             if (token.type == JSONTokenType::number_integer) {
-                target = (T)std::get<int64_t>(token.value);
+                int64_t val = std::get<int64_t>(token.value);
+                if (val > std::numeric_limits<T>::max() || val < std::numeric_limits<T>::lowest()) {
+                    return ParseError("Number read is out of range for given type");
+                }
+                target = (T)val;
                 return ParserDone();
             }
             else if (token.type == JSONTokenType::number_unsigned) {
-                target = (T)std::get<uint64_t>(token.value);
+                uint64_t val = std::get<uint64_t>(token.value);
+                if (val > std::numeric_limits<T>::max()) {
+                    return ParseError("Number read is out of range for given type");
+                }
+                target = (T)val;
                 return ParserDone();
             }
             else if (token.type == JSONTokenType::number_float) {
                 if (std::is_integral_v<std::decay_t<decltype(target)>>) {
                     return ParseError("Can't parse a floating point into an integral type");
                 }
-                target = (T)std::get<double>(token.value);
+                double val = std::get<double>(token.value);
+                if (val > std::numeric_limits<T>::max() || val < std::numeric_limits<T>::lowest()) {
+                    return ParseError("Number read is out of range for given type");
+                }
+
+                target = (T)val;
                 return ParserDone();
             }
             else if (token.type == JSONTokenType::string) {
@@ -150,7 +163,7 @@ inline ParseResult ParseNumber(Numeric auto& target) {
                 else return ParseError("Failed parsing integer");
             }
             else {
-                return ParseError("Unexpected data type");
+                return ParseError("Unexpected token type");
             }
          }
     };
@@ -188,6 +201,7 @@ inline ParseResult SkipNextElement() {
                      depth--;
                      break;
              }
+             if (depth < 0) return ParseError("Malformed document while skiping element");
              return depth ? KeepParsing() : ParserDone();
         }
     };
@@ -213,7 +227,7 @@ inline ParseResult ParseList(COLLECTION& collection, std::function<JSONParseFunc
             if (first) {
                 first = false;
                 if (token.type != JSONTokenType::start_array) return ParseError("No open array token for list");
-                else return KeepParsing();
+                else return KeepParsing(); 
             }
 
             if (token.type == JSONTokenType::end_array) {
@@ -226,7 +240,14 @@ inline ParseResult ParseList(COLLECTION& collection, std::function<JSONParseFunc
 }
 
 template<typename COLLECTION>
-requires SexContainer<COLLECTION>
+    requires SexContainer<COLLECTION>
+[[nodiscard]]
+inline ParseResult ParseList(COLLECTION& collection, std::function<ParseResult(typename COLLECTION::value_type&)> parse_item_function) {
+        return ParseList(collection, [parse_item_function](std::string& target) { return parse_item_function(target).new_parser.value(); });
+}
+
+template<typename COLLECTION>
+    requires SexContainer<COLLECTION>
 [[nodiscard]]
 inline ParseResult ParseObjectList(COLLECTION& collection, const JSONObjectParser<typename COLLECTION::value_type>& parse_item_function) {
     return ParseList(
@@ -234,6 +255,7 @@ inline ParseResult ParseObjectList(COLLECTION& collection, const JSONObjectParse
         [&, parse_item_function](typename COLLECTION::value_type& item) { return ParseObject([&, parse_item_function](std::string_view key) { return parse_item_function(key, item); });  }
     );
 }
+
 
 [[nodiscard]]
 inline JSONParseFunc ParseObject(const std::function<ParseResult(std::string_view key)>& handler) {
@@ -278,19 +300,23 @@ class SaxParser {
     public:
 
         // JSON parsing
-        bool Null() { return ParseToken({ .type = JSONTokenType::null }); }
-        bool Bool(bool val) { return ParseToken({ .type = JSONTokenType::boolean, .value = val }); }
-        bool Int(int val) { return ParseToken({ .type = JSONTokenType::number_integer, .value = val }); }
-        bool Int64(int64_t val) { return ParseToken({ .type = JSONTokenType::number_integer, .value = val }); }
-        bool UInt(unsigned int val) { return ParseToken({ .type = JSONTokenType::number_unsigned, .value = (uint64_t)val }); }
-        bool UInt64(uint64_t val) { return ParseToken({ .type = JSONTokenType::number_unsigned, .value = val }); }
-        bool Double(double val) { return ParseToken({ .type = JSONTokenType::number_float, .value = val }); }
-        bool String(const char* str, rapidjson::SizeType length, bool copy) { return ParseToken({ .type = JSONTokenType::string , .value = std::string_view(str, length) }); }
-        bool StartObject() { return ParseToken({ .type = JSONTokenType::start_object }); }
-        bool EndObject(rapidjson::SizeType memberCount) { return ParseToken({ .type = JSONTokenType::end_object }); }
-        bool StartArray() { return ParseToken({ .type = JSONTokenType::start_array }); }
-        bool EndArray(rapidjson::SizeType memberCount) { return ParseToken({ .type = JSONTokenType::end_array }); }
-        bool Key(const char* str, rapidjson::SizeType length, bool copy) { return ParseToken({ .type = JSONTokenType::key , .value = std::string_view(str, length) }); }
+        bool Null()                 { std::cout << "null\n"; return ParseToken({ .type = JSONTokenType::null }); }
+        bool Bool(bool val)         { std::cout << "bool\n"; return ParseToken({ .type = JSONTokenType::boolean, .value = val }); }
+        bool Int(int val)           { std::cout << "int\n"; return ParseToken({ .type = JSONTokenType::number_integer, .value = val }); }
+        bool Int64(int64_t val)     { std::cout << "int64\n"; return ParseToken({ .type = JSONTokenType::number_integer, .value = val }); }
+        bool UInt(unsigned int val) { std::cout << "uint\n"; return ParseToken({ .type = JSONTokenType::number_unsigned, .value = (uint64_t)val }); }
+        bool UInt64(uint64_t val)   { std::cout << "uint64\n"; return ParseToken({ .type = JSONTokenType::number_unsigned, .value = val }); }
+        bool Double(double val)     { std::cout << "double\n"; return ParseToken({ .type = JSONTokenType::number_float, .value = val }); }
+        bool String(const char* str, rapidjson::SizeType length, bool copy) 
+                                    { std::cout << "string\n"; return ParseToken({ .type = JSONTokenType::string , .value = std::string_view(str, length) }); }
+        bool StartObject()          { std::cout << "SObj\n"; return ParseToken({ .type = JSONTokenType::start_object }); }
+        bool EndObject(rapidjson::SizeType memberCount) 
+                                    { std::cout << "EOnj\n"; return ParseToken({ .type = JSONTokenType::end_object }); }
+        bool StartArray()           { std::cout << "SList\n"; return ParseToken({ .type = JSONTokenType::start_array }); }
+        bool EndArray(rapidjson::SizeType memberCount) 
+                                    { std::cout << "EList\n"; return ParseToken({ .type = JSONTokenType::end_array }); }
+        bool Key(const char* str, rapidjson::SizeType length, bool copy) 
+                                    { std::cout << "key\n"; return ParseToken({ .type = JSONTokenType::key , .value = std::string_view(str, length) }); }
 
 
         // YAML parsing

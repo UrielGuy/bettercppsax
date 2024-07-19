@@ -10,10 +10,11 @@ add_subdirectory(yaml-cpp)
 add_library(rapidjson INTERFACE)
 target_include_directories(rapidjson INTERFACE rapidjson/include)
 
-add_library(bettercppsax INTERFACE)
+add_library(bettercppsax INTERFACE bettercppsax.h)
 target_include_directories(bettercppsax INTERFACE .)
 target_link_libraries(bettercppsax INTERFACE yaml-cpp rapidjson)
 
 add_executable(read_vviz example/vviz_parser.cpp)
 target_link_libraries(read_vviz PUBLIC bettercppsax)
 
+add_subdirectory(tests)
