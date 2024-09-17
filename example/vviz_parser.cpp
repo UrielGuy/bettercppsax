@@ -5,6 +5,8 @@
 #include <fstream>
 #include "../bettercppsax.h"
 
+using namespace bettercppsax;
+
 struct RGB_t {
     uint8_t r, g, b;
 };
@@ -49,49 +51,49 @@ struct show_data {
 class VVIZParser {
 private:
     static auto ParseTraversal(std::string_view key, drone_location_data& traversal) {
-        if (key == "dx") return ParseNumber(traversal.location_delta.x);
-        else if (key == "dy") return ParseNumber(traversal.location_delta.y);
-        else if (key == "dz") return ParseNumber(traversal.location_delta.z);
-        else if (key == "dt") { traversal.delay_seconds = 1.0; return ParseNumber(traversal.delay_seconds.value()); }
+        if (key == "dx") return ParseScalar(traversal.location_delta.x);
+        else if (key == "dy") return ParseScalar(traversal.location_delta.y);
+        else if (key == "dz") return ParseScalar(traversal.location_delta.z);
+        else if (key == "dt") { traversal.delay_seconds = 1.0; return ParseScalar(traversal.delay_seconds.value()); }
         else return ParseError("Unexpected key in traversal list");
     }
 
     static auto ParseAgentData(std::string_view key, drone_data& drone) {
-        if (key == "homeX") return ParseNumber(drone.start_pos.x);
-        else if (key == "homeY") return ParseNumber(drone.start_pos.y);
-        else if (key == "homeZ") return ParseNumber(drone.start_pos.z);
-        else if (key == "agentTraversal") return ParseObjectList(drone.agent_traversal, ParseTraversal);
+        if (key == "homeX") return ParseScalar(drone.start_pos.x);
+        else if (key == "homeY") return ParseScalar(drone.start_pos.y);
+        else if (key == "homeZ") return ParseScalar(drone.start_pos.z);
+        else if (key == "agentTraversal") return ParseList(drone.agent_traversal, ParseTraversal);
         else return SkipNextElement();
     }
 
     static auto ParseDroneAction(std::string_view key, drone_action& action) {
-        if (key == "r") return ParseNumber(action.color.r);
-        else if (key == "g") return ParseNumber(action.color.g);
-        else if (key == "b") return ParseNumber(action.color.b);
-        else if (key == "frames") { action.frames = 1; return ParseNumber(action.frames.value()); }
+        if (key == "r") return ParseScalar(action.color.r);
+        else if (key == "g") return ParseScalar(action.color.g);
+        else if (key == "b") return ParseScalar(action.color.b);
+        else if (key == "frames") { action.frames = 1; return ParseScalar(action.frames.value()); }
         else return ParseError("Unexpected key in action ");
     }
 
     static auto ParseDronePayload(std::string_view key, drone_payload& payload) {
-        if (key == "id") return ParseNumber(payload.id);
-        else if (key == "type") return ParseString(payload.type);
-        else if (key == "payloadActions") return ParseObjectList(payload.payload_actions, ParseDroneAction);
+        if (key == "id") return ParseScalar(payload.id);
+        else if (key == "type") return ParseScalar(payload.type);
+        else if (key == "payloadActions") return ParseList(payload.payload_actions, ParseDroneAction);
         else return SkipNextElement();
     }
 
     static auto ParsePerformance(std::string_view key, drone_data& drone) {
-        if (key == "id") return ParseNumber(drone.id);
+        if (key == "id") return ParseScalar(drone.id);
         else if (key == "agentDescription") return ParseObject<drone_data>(drone, ParseAgentData);
-        else if (key == "payloadDescription") return ParseObjectList(drone.payload_actions, ParseDronePayload);
+        else if (key == "payloadDescription") return ParseList(drone.payload_actions, ParseDronePayload);
         else return SkipNextElement();
     }
 public:
     static auto ParseRoot(std::string_view key, show_data& data)  {
-        if (key == "version") return ParseString(data.version);
-        else if (key == "defaultPositionRate") return ParseNumber(data.defaultPositionRate);
-        else if (key == "defaultColorRate") return ParseNumber(data.defaultColorRate);
-        else if (key == "timeOffsetSecs") return ParseNumber(data.timeOffsetSecs);
-        else if (key == "performances") return ParseObjectList(data.performances, ParsePerformance);
+        if (key == "version") return ParseScalar(data.version);
+        else if (key == "defaultPositionRate") return ParseScalar(data.defaultPositionRate);
+        else if (key == "defaultColorRate") return ParseScalar(data.defaultColorRate);
+        else if (key == "timeOffsetSecs") return ParseScalar(data.timeOffsetSecs);
+        else if (key == "performances") return ParseList(data.performances, ParsePerformance);
         else return SkipNextElement();
     }
 };

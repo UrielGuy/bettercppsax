@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <bettercppsax.h>
 
+using namespace bettercppsax;
+
 TEST_CASE("ParseResult structure", "[ParseResult]") {
     SECTION("KeepParsing() returns correct ParseResult") {
         auto result = KeepParsing();
@@ -32,9 +34,9 @@ TEST_CASE("ParseResult structure", "[ParseResult]") {
     }
 }
 
-TEST_CASE("Test ParseString", "[ParseString]") {
+TEST_CASE("Test ParseScalar", "[ParseScalar]") {
     std::string target;
-    auto parse_res = ParseString(target);
+    auto parse_res = ParseScalar(target);
     REQUIRE(parse_res.type == ParseResultType::NewParser);
     REQUIRE(parse_res.error.has_value() == false);
     REQUIRE(parse_res.new_parser.has_value() == true);
@@ -56,9 +58,9 @@ TEST_CASE("Test ParseString", "[ParseString]") {
     }
 }
 
-TEST_CASE("Test ParseNumber Int32", "[ParseNumber]") {
+TEST_CASE("Test ParseScalar Int32", "[ParseScalar]") {
     int32_t target;
-    auto parse_res = ParseNumber(target);
+    auto parse_res = ParseScalar(target);
 
     REQUIRE(parse_res.type == ParseResultType::NewParser);
     REQUIRE(parse_res.error.has_value() == false);
@@ -135,9 +137,9 @@ TEST_CASE("Test ParseNumber Int32", "[ParseNumber]") {
     }
 }
 
-TEST_CASE("Test ParseNumber UInt32", "[ParseNumber]") {
+TEST_CASE("Test ParseScalar UInt32", "[ParseScalar]") {
     uint32_t target;
-    auto parse_res = ParseNumber(target);
+    auto parse_res = ParseScalar(target);
 
     REQUIRE(parse_res.type == ParseResultType::NewParser);
     REQUIRE(parse_res.error.has_value() == false);
@@ -211,9 +213,9 @@ TEST_CASE("Test ParseNumber UInt32", "[ParseNumber]") {
     }
 }
 
-TEST_CASE("Test ParseNumber Double", "[ParseNumber]") {
+TEST_CASE("Test ParseScalar Double", "[ParseScalar]") {
     double target;
-    auto parse_res = ParseNumber(target);
+    auto parse_res = ParseScalar(target);
 
     REQUIRE(parse_res.type == ParseResultType::NewParser);
     REQUIRE(parse_res.error.has_value() == false);
@@ -292,9 +294,9 @@ TEST_CASE("Test ParseNumber Double", "[ParseNumber]") {
     }
 }
 
-TEST_CASE("Test ParseNumber float", "[ParseNumber]") {
+TEST_CASE("Test ParseScalar float", "[ParseScalar]") {
     float target;
-    auto parse_res = ParseNumber(target);
+    auto parse_res = ParseScalar(target);
 
     REQUIRE(parse_res.type == ParseResultType::NewParser);
     REQUIRE(parse_res.error.has_value() == false);
@@ -373,9 +375,9 @@ TEST_CASE("Test ParseNumber float", "[ParseNumber]") {
     }
 }
 
-TEST_CASE("Test ParseNumber Int8", "[ParseNumber]") {
+TEST_CASE("Test ParseScalar Int8", "[ParseScalar]") {
     int8_t target;
-    auto parse_res = ParseNumber(target);
+    auto parse_res = ParseScalar(target);
 
     REQUIRE(parse_res.type == ParseResultType::NewParser);
     REQUIRE(parse_res.error.has_value() == false);
@@ -447,9 +449,9 @@ TEST_CASE("Test ParseNumber Int8", "[ParseNumber]") {
 }
 
 
-TEST_CASE("Test ParseBool", "[ParseBool]") {
+TEST_CASE("Test ParseScalar", "[ParseScalar]") {
     bool target;
-    auto parse_res = ParseBool(target);
+    auto parse_res = ParseScalar(target);
     REQUIRE(parse_res.type == ParseResultType::NewParser);
     REQUIRE(parse_res.error.has_value() == false);
     REQUIRE(parse_res.new_parser.has_value() == true);
@@ -570,7 +572,7 @@ TEST_CASE("Parse Object", "[ParseObject]") {
         std::string str;
     } to;
     auto parse_res = ParseObject<test_object>(to, [](std::string_view key, test_object& to) {
-        if (key == "str") return ParseString(to.str);
+        if (key == "str") return ParseScalar(to.str);
         else if (key == "error") return ParseError("Sending out an error");
         else return SkipNextElement();
     });
@@ -620,7 +622,7 @@ TEST_CASE("Parse Object", "[ParseObject]") {
 TEST_CASE("Parse List", "[ParseList]") {
     std::vector<std::string> values;
 
-    auto parse_res = ParseList(values, ParseString);
+    auto parse_res = ParseList(values);
     
 }
 
@@ -641,10 +643,10 @@ TEST_CASE("SaxParser class", "[SaxParser]") {
         // Define your root parser function
         JSONParseFunc rootParser = ParseObject([&](std::string_view key) -> ParseResult {
             if (key == "name") {
-                return ParseString(targetName);
+                return ParseScalar(targetName);
             }
             else if (key == "age") {
-                return ParseNumber(targetAge);
+                return ParseScalar(targetAge);
             }
             else {
                 return SkipNextElement();
