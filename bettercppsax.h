@@ -120,6 +120,11 @@ namespace bettercppsax {
         return ParseResult{ .type = ParseResultType::NewParser, .new_parser = parser };
     }
 
+    [[nodiscard]]
+    inline ParseResult NewParserRepeatToken(const JSONParseFunc parser) {
+        return ParseResult{ .type = ParseResultType::NewParser_ReplayCurrent, .new_parser = parser };
+    }
+
     namespace internal {
 
         [[nodiscard]]
