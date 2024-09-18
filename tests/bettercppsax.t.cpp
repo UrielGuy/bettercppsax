@@ -2,6 +2,7 @@
 #include <bettercppsax.h>
 
 using namespace bettercppsax;
+using namespace bettercppsax::core;
 
 TEST_CASE("ParseResult structure", "[ParseResult]") {
     SECTION("KeepParsing() returns correct ParseResult") {

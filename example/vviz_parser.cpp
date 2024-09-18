@@ -48,10 +48,12 @@ struct show_data {
 
 };
 auto ParseRGB(RGB_t& rgb) {
+    using namespace bettercppsax::core;
+
     return NewParser([&rgb](const JSONToken& token) {
         if (token.type == JSONTokenType::string) {
             auto& str = std::get<std::string_view>(token.value);
-            if (!str.starts_with("#")) return ParseError("Invalid string for color");
+            if (!str.starts_with("#")) return core::ParseError("Invalid string for color");
             uint32_t value = std::strtol(str.data() + 1, nullptr, 16);
             rgb.r = (value & 0xFF0000) >> 16;
             rgb.g = (value & 0xFF00) >> 8;
@@ -62,31 +64,31 @@ auto ParseRGB(RGB_t& rgb) {
             return NewParser([&rgb, index = 0](const JSONToken& token) mutable {
                 if (index == 3) {
                     if (token.type == JSONTokenType::end_array) return ParserDone();
-                    else return ParseError("Unexpected type");
+                    else return core::ParseError("Unexpected type");
                 }
                 else if (index++ == 0) return NewParserRepeatToken(ParseScalar(rgb.r).new_parser.value());
                 else if (index++ == 1) return NewParserRepeatToken(ParseScalar(rgb.g).new_parser.value());
                 else if (index++ == 2) return NewParserRepeatToken(ParseScalar(rgb.b).new_parser.value());
                 // Should be std::unreachable in C++23
-                else return ParseError("Should never get here");
+                else return core::ParseError("Should never get here");
                 } );
         }
         else if (token.type == JSONTokenType::start_object) {
             return NewParser([&rgb, index = 0](const JSONToken& token) mutable {
                 if (index == 3) {
                     if (token.type == JSONTokenType::end_object) return ParserDone();
-                    else return ParseError("Unexpected type");
+                    else return core::ParseError("Unexpected type");
                 }
-                else if (token.type != JSONTokenType::key) return ParseError("Unexpected token");
+                else if (token.type != JSONTokenType::key) return core::ParseError("Unexpected token");
                 auto key = std::get<std::string_view>(token.value);
                 if (key == "r") return ParseScalar(rgb.r);
                 else if (key == "g") return ParseScalar(rgb.g);
                 else if (key == "b") return ParseScalar(rgb.b);
-                else return ParseError("Unexpected value");
+                else return core::ParseError("Unexpected value");
                 });
 
         }
-        else return ParseError("Unexpected token type");
+        else return core::ParseError("Unexpected token type");
     });
 }
 
@@ -142,8 +144,13 @@ public:
 };
 
 int main(int argc, char** argv) {
-    show_data show;
-    SaxParser parser;
-    std::ifstream f(argv[1]);
-    parser.ParseJSON<show_data>(f, show, VVIZParser::ParseRoot);
+    // Will be replaced with std::Expected for C++23.
+    auto parse_res = bettercppsax::ParseJson<show_data>(std::ifstream(argv[1]), VVIZParser::ParseRoot);
+    
+    if (std::holds_alternative<std::string>(parse_res)) {
+        std::cout << "Failed parsing with error:\n" << std::get<std::string>(parse_res) << std::endl;
+        return -1;
+    }
+    
+    show_data& data = std::get<show_data>(parse_res);
 }
