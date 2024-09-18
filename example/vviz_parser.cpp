@@ -145,12 +145,13 @@ public:
 
 int main(int argc, char** argv) {
     // Will be replaced with std::Expected for C++23.
-    auto parse_res = bettercppsax::ParseJson<show_data>(std::ifstream(argv[1]), VVIZParser::ParseRoot);
+    show_data s;
+    auto parse_res = bettercppsax::ParseJson<show_data>(std::ifstream(argv[1]), s,  VVIZParser::ParseRoot);
     
-    if (std::holds_alternative<std::string>(parse_res)) {
-        std::cout << "Failed parsing with error:\n" << std::get<std::string>(parse_res) << std::endl;
+    if (!parse_res) {
+        std::cout << "Failed parsing with error:\n" << parse_res.error() << std::endl;
         return -1;
     }
     
-    show_data& data = std::get<show_data>(parse_res);
+  //  show_data& data = parse_res.value();
 }

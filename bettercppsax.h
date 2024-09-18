@@ -10,6 +10,7 @@
 #include <string_view>
 #include <exception>
 #include <charconv>
+#include <expected>
 
 #include "rapidjson/reader.h"
 #include "rapidjson/istreamwrapper.h"
@@ -412,24 +413,24 @@ namespace bettercppsax {
     // In C++23, make into a std::expected
     /// Ovveride for the parse function that returns an optional error string if parsing failed.
     template<typename T>
-    std::optional<std::string> ParseJson(std::istream&& stream, T& object, const core::JSONObjectParser<T> root_parser) {
+    std::expected<void, std::string> ParseJson(std::istream&& stream, T& object, const core::JSONObjectParser<T> root_parser) {
         std::optional<std::string> res;
         core::SaxParser parser([&res](std::string_view error) {res = error; });
         parser.ParseJSON(stream, ParseObject<T>(object,  root_parser).new_parser.value());
-        return res;
+        if (res.has_value()) return std::unexpected(res.value());
+        else return std::expected<void, std::string>{};
     }
 
-    // In C++23, make into a std::expected
-/// Ovveride for the parse function that returns an optional error string if parsing failed.
+    /// Ovveride for the parse function that returns an optional error string if parsing failed.
     template<typename T>
-    std::variant<T, std::string> ParseJson(std::istream&& stream, const core::JSONObjectParser<T> root_parser) {
+    std::expected<T, std::string> ParseJson(std::istream&& stream, const core::JSONObjectParser<T> root_parser) {
         static_assert(std::is_default_constructible_v<T>, "To use the overload that doesn't take an object, the type parsed must be default constructible");
         T object;
         std::optional<std::string> res;
         core::SaxParser parser([&res](std::string_view error) {res = error; });
         parser.ParseJSON(stream, ParseObject<T>(object, root_parser).new_parser.value());;
         if (res.has_value()) {
-            return res.value();
+            return std::unexpected(res.value());
         }
         else {
             return object;
