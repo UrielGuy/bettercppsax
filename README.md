@@ -1,17 +1,17 @@
 # bettercppsax
 
 This repository hold bettercppsax, a headers only C++20 library (other than its dependencies) to help build
-efficient, easy and clean parsers for JSON and YAML files on top of industry standard SAX parsers. 
+efficient, easy and clean parsers for JSON files on top of industry standard SAX parsers. 
 
 ## What is this all about? 
 
 Most JSON and YAML parsing libraries use the DOM operation mode. DOM mean loading all of the data in a file
 into memory, in a relatively large data model. This both means holding all of the data in memory and at least 
-two processing interations - one to load the JSON/YAML data, and one to go over the data structures. 
+two processing interations - one to load the JSON data, and one to go over the data structures. 
 Alternatively, one can use the SAX parsing model.
 
 The SAX Parsing model is a model where tokens are parsed by a parser, and then passed on to the user code
-one by one. While fast and memory efficient, this requires the user to manage a lot of state to be able to
+one by one. While fast and memory efficient, this requires the user to manage a lot of state in order to
 parse effectively. This library helps abstract away all of the state managment, allowing engineers to write
 fast, efficient parsing of JSON and YAML into C++ data types. 
 
@@ -19,12 +19,12 @@ fast, efficient parsing of JSON and YAML into C++ data types.
 
 ### Easier Tokens
 
-Most APIs for SAX parsing is made out ouf polymorphic interfaces. Event handlers are usually a class 
-implementing a method for each possible event. This makes implementing a specific handler noisy, as you
-have to implement a lot of methods you don't care about for the current state. It also means there's a type 
-for each one of the states. 
-
-To improve on this, We have create the `JSONToken` type, defined here: 
+The two most common libraries with a JSON SAX interface (RapidJSON and Json for Modern C++)are made out of 
+polymorphic interfaces where you are required to write a function for every possible token. This makes 
+implementing even simple handlers (such as "Expect an int and save it to a variable") into a very tidious
+task, as you have to implement a lot of methods you don't care about for a given state. It also means 
+writing a type for each one of the states. Modern C++ allows us to use a different way of specifying a 
+token, including a value, without resorting to OOP methods:
 
 ```c++
 enum class JSONTokenType {
@@ -43,6 +43,7 @@ enum class JSONTokenType {
 };
 
 using json_val = std::variant<
+    std::nullopt_t,
     int64_t,
     uint64_t,
     double,
@@ -51,12 +52,13 @@ using json_val = std::variant<
 
 struct JSONToken {
     JSONTokenType type;
-    json_val value;
+    json_val value = std::nullopt;
 };
 ```
 
-This allows us to express every token as a single variable, so every state can be expressed as a method, taking
-the current token as a parameter.  These are also relatively cheap and can be passed by value. We are now only required to create a single "native" event handler, and translate all events into this structure. 
+This allows us to express every token as a single object with the token type and an optional value. so every state can be expressed as a method, taking
+the current token as a parameter.  These are also relatively cheap and can be passed by value. We are now only
+required to create a single "native" event handler, and translate all events into this structure. 
 
 ### State Managment 
 
