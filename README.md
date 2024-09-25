@@ -360,11 +360,16 @@ auto ParseSecurity(std::string_view, security& sec) {
 }
 
 ```
-
+ 
+ This is getting lovely!
+ 
 #### Skipping unneeded parts
 
-As we must process ALL tokens in a document, it might be that there are parts we do not care about. Some keys in a dictionary that
-are not interesting, or optional parts we have no need for. For that we supply the following function: 
+The last missing piece is loosening the requirements on the structure of the JSON file by allowing us
+to ignore unexpected data. We would like to be able to ignore unexpected sections rahter than failing
+whenever we have any little surprise. In order to do this, we can write a function that will follow 
+hierarchy of the JSON at a current spot and ignore it, with objects, lists or scalars. We can do this 
+with the following function:
 
 ```c++
 
@@ -386,6 +391,16 @@ inline ParseResult SkipNextElement() {
              return depth ? KeepParsing() : ParserDone();
         }
     };
+}
+```
+
+we can now change the `ParseTrade` function to the following: 
+
+```c++
+auto ParseTrade(std::string_view key, trade_type& trade) {
+    if (key == "price") return ParseScalar(trade.price);
+    else if (key == "size") return ParseSize(trade.size);
+    else return SkipNextElement();
 }
 ```
 
