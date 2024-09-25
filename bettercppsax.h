@@ -44,7 +44,7 @@ namespace bettercppsax {
 
         // Every possible value type for a JSON item. so we can pass the value, with that information, as a single variable.
         using json_val = std::variant<
-            std::nullopt_t,
+            std::monostate,
             int64_t,
             uint64_t,
             double,
@@ -55,7 +55,7 @@ namespace bettercppsax {
         // "Key" token type is a string.
         struct JSONToken {
             JSONTokenType type;
-            json_val value = std::nullopt;
+            json_val value = std::monostate{};
         };
 
         /// <summary>
