@@ -63,15 +63,21 @@ a parameter.
 
 ### State Managment 
 
-One assumption made is that the parsing is somewhat recursive - an object can contain other instances of itself (making simple state machines harder to use for this), but also simplifying the set of events that need to be currently handled. This means that we can create a stack of parsers, where  a token is parsed, the parser can do one of 5 things: 
+JSON is an hierarchical structure - you have objects and lists containing other objects, lists
+and scalars. Logically it might also be recursive, as an object of a certain schema or type might
+contain more objects of the same type. Hence, we need a datastructure that will allow us to save
+parsers that we can go to, and put in new ones. We have chosen a stack, as we push new parsers, 
+use them for a while, and then pop them out to return to the previous parser. 
 
-* Ask to also receive the next token as well
-* Ask to pass the next token to a new parser pushed to the stack
-* Ask to pass the currenrt token again to a new parser pushed to the stack
-* Ask to finish its role and pass the next token back to the previous parser on the stack
+Given a token, a parser can tell the machanism to perform one of 5 things: 
+
+* Pass the next token to the same parser
+* Pass the next token to a new parser specified by the current parser
+* Pass the currenrt token again to a new parser specified by the current parser
+* Finish its work, and pass the next token to the parser that created it. 
 * Report an error and stop the parsing.
 
-Given all that, a parser is just a functor of the following form: 
+To accomplish all that, we created the following form for a parser: 
 
 ```c++
 
@@ -92,7 +98,9 @@ struct ParseResult {
 using JSONParseFunc = std::function<ParseResult(const JSONToken&)>;
 ```
 
-This allows us to write the actual core logic in the following form: 
+Every parser in its heart is a functor that takes a token, and return the next 
+action. Now that we have the definition for a single parser, we can write the 
+mechanism that manages a stream of tokens: 
 
 ```c++
 class Parser {
@@ -115,7 +123,51 @@ public:
 };
 ```
 
-As far as the parser logic manager is concerened, we are done. It is now pussible to write full parsers, using features like designated initializers and mutable lambdas. An example parser might look like: 
+This manages the stack of parsers based on the return value of each parser. However, writing
+parsers using just this syntax is still clunky. As far as the parser logic manager is concerened,
+we are done. It is now pussible to write full parsers, using features like designated initializers 
+and mutable lambdas. An example parser might look like: 
+
+```c++
+std::string target;
+auto parse_string = [&target](const JSONToken& token) {
+    // Verify token type
+    if (token.type == JSONTokenType::string) {
+        // Parse the value
+        target = std::get<std::string_view>(token.value);
+        return ParseResult{.type = ParseResultType::ParserDone };
+    }
+    else {
+        return ParseResult{.type = ParseResultType::Error, .error = "Unexpected data type"};
+    }
+}
+
+auto my_type;
+
+auto parse_my_type = [&my_type, first = false](const JSONToken& token) mutable {
+    // Verify object is starting
+    if (first) {
+        first = false;
+        if (token.type != JSONTokenType::start_object) return ParseResult { .type = ParseResultType::Error, .error = "Expected object start };
+        else return ParseResult { .type = ParseResultType::KeepParsing };
+    }
+
+    if (token.type == JSONTokenType::key) {
+        const auto& key = std::get<std::string_view>(token.value);
+        if (key == str) return ParseResult { .type = ParseResultType::NewParser, .new_parser = parse_string };
+    }
+    else if (token == JSONTokenType::end_object) {
+        return ParseResult { .type = ParseResultType::ParsingDone };
+    }
+    
+
+};
+```
+
+This is slightly painful to write, as it's not very reusable nad would have to be redeclared for
+every variable we want to parse so we can capture it.  Let's see how we can improve the API further:
+
+
 
 ```c++
 ParseResult ParseString(const JSONToken& token, std::string& target) {
