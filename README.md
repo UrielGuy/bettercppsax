@@ -148,7 +148,7 @@ auto parse_my_type = [&my_type, first = false](const JSONToken& token) mutable {
     // Verify object is starting
     if (first) {
         first = false;
-        if (token.type != JSONTokenType::start_object) return ParseResult { .type = ParseResultType::Error, .error = "Expected object start };
+        if (token.type != JSONTokenType::start_object) return ParseResult { .type = ParseResultType::Error, .error = "Expected object start" };
         else return ParseResult { .type = ParseResultType::KeepParsing };
     }
 
@@ -159,62 +159,28 @@ auto parse_my_type = [&my_type, first = false](const JSONToken& token) mutable {
     else if (token == JSONTokenType::end_object) {
         return ParseResult { .type = ParseResultType::ParsingDone };
     }
-    
-
+    else {
+        return ParseResult { .type = ParseResultType::Error, .error = "Unexpected token type" };
+    }
 };
 ```
 
-This is slightly painful to write, as it's not very reusable nad would have to be redeclared for
-every variable we want to parse so we can capture it.  Let's see how we can improve the API further:
-
-
-
-```c++
-ParseResult ParseString(const JSONToken& token, std::string& target) {
-    if (token.type == JSONTokenType::string) {
-        target = std::get<std::string_view>(token.value);
-        return ParseResult{.type = ParseResultType::ParserDone };
-    }
-    else {
-        return ParseResult{.type = ParseResultType::Error, .error = "Unexpected data type"};
-    }
-}
-
-ParseResult ParseObject (const JSONtoken& token, object& target) {
-    if (token.type == JSONTokenType::start_object) {
-         return ParseResult { .type = ParseResultType::KeepParsing; }
-    }
-    else if (token.type == JSONTokenType::key) {
-        const auto& key = std::get<std::string_view>(target.value);
-        if (key == "prop1") return ParseResult {
-            .type = ParseResultType::NewParser,
-            .new_parser = [&target](const JSONToken& token) mutable { ParseString(toekn, target.prop1); }
-        };
-        else if (key == "prop2") return ParseResult {
-            .type = ParseResultType::NewParser,
-            .new_parser = [&target](const JSONToken& token) mutable { ParseString(toekn, target.prop1); }
-        };
-
-    }
-    else if (token.type == JSONTokenType::end_object) {
-        return ParseResult { .type = ParseResultType::DoneParsing; }
-    }
-    else {
-       return ParseResult { .type = ParseResultType::Error, .error = "Unexpected token type" }; 
-    }
-}
-```
+While fully capbale, this is not a great API. It's cumbursome and not very composable or reusable. 
+Let's see how we can improve. 
 
 ### Let's make it all pretty
 
 As much as this is already a powerful parser, it still requires a user to know quite a bit about the internal
-structure of what we do, and some repetision does occur, such as defining the parsers quite often.  We can
-add helper functions to help engineers write nicer code. The final goal is to completely hide `JSONToken`
-from them, and hide ParseResult in `auto` types. 
+structure of what we do, and some repetition does occur, such as defining the parsers quite often.  We can
+add helper functions to help engineers write nicer code. At the end of the day, users of this library care
+very little about JSON tokens and decisions about what to do next, they just want to be as expressive as 
+possible about their types. Let's see how we can get them there. 
 
 #### Hiding ParseResult
 
-The first step to remove redundant code is to add function to make creating the objects easier:
+The first step is removing the explicit construction of ParseResult. We can add functions that will build them
+and take the proper parameters for each type:
+
 ```C++
 [[nodiscard]]
 inline ParseResult KeepParsing() {
@@ -237,21 +203,18 @@ inline ParseResult NewParser(const JSONParseFunc parser) {
 
 ```
 
-These clean up simple, default operations. This hides direct access to the `ParseResultType` enum, and makes it so that there is considerably less use of designated initializers, making the code cleaner.
+These clean up simple, default operations. This hides direct access to the `ParseResultType` enum, 
+and makes it so that there is considerably less use of designated initializers, making the code cleaner.
 
 #### Parsing Primitives
 
-Given the base functions, and after parsing multiple primitives, these functionality can be reused. Given this example for an int: 
+Given the base functions, and after parsing multiple primitives, these functionality can be reused.
+Given this example for a string: 
 ```
-template<typename T>
 [[nodiscard]]
-inline ParseResult ParseInt(T& target) {
+inline auto ParseString(std::string& target) {
     return NewParser([&target](const JSONToken& token) mutable {
-            if (token.type == JSONTokenType::number_integer) {
-                target = std::get<int64_t>(token.value);
-                return ParserDone();
-            }
-            else if (token.type == JSONTokenType::string) {
+            if (token.type == JSONTokenType::string) {
                 const auto& data = std::get<std::string_view>(token.value);
                 if (std::from_chars(data.data(), data.data() + data.size(), target).ec == std::errc{}) return ParserDone();
                 else return ParseError("Failed parsing integer");
@@ -264,17 +227,25 @@ inline ParseResult ParseInt(T& target) {
 }
 ```
 
-This function is capable of parsing an integer from either a string or an integer primitive. similiar
-functions can be written for any other primitive, such as a string, a date, a floating point number, etc. 
-The library provides:
-* `ParseInteger`
-* `ParseUnsigned`
-* `ParseFloat`
-* `ParseString`
-* `ParseBool`
+This function is capable of parsing an string from a token and into a variable. similiar
+functions can be written for any other primitive, such as integers, dates, floating point parameters, etc. 
 
-If a user is intereseted in extanding the library externally, it is remarkebly easy as these are all just
-functions. One can easily add `ParseDate` or `ParseFormula`.
+However, even specifying what type you want to parse is already requiring the user to specify it twice - 
+we should already know what is being parsed from the type of the variable. We can use `if constexpr` to 
+route to the correct function: 
+
+```c++
+template<typename T>
+[[nodiscard]]
+inline auto ParseScalar(T& scalar) {     
+    if constexpr (std::is_same_v<std::string, T>) return ParseString(scalar);
+    else if constexpr (std::is_same_v<bool, T>) return ParseBool(scalar);
+    else return ParseNumber(scalar);
+}
+```
+
+It is possible to extend the library by writing more overrides of ParseScalar for other primitive types,
+or call an explicit parser if needed.
 
 #### Parsing types
 
