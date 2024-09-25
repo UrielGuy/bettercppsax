@@ -56,9 +56,10 @@ struct JSONToken {
 };
 ```
 
-This allows us to express every token as a single object with the token type and an optional value. so every state can be expressed as a method, taking
-the current token as a parameter.  These are also relatively cheap and can be passed by value. We are now only
-required to create a single "native" event handler, and translate all events into this structure. 
+This allows us to express every token as a single object with the token type and an optional 
+value. Once a token is represented as an object, we can handle it quite simply. the approach
+taken by this library is that a handler for a token should be a function that takes a token as
+a parameter. 
 
 ### State Managment 
 
