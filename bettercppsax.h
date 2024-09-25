@@ -1,3 +1,4 @@
+// Copyright 2024 Uriel Guy
 #pragma once
 
 #include <variant>
