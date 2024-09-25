@@ -43,7 +43,7 @@ enum class JSONTokenType {
 };
 
 using json_val = std::variant<
-    std::nullopt_t,
+    std::monostate,
     int64_t,
     uint64_t,
     double,
@@ -52,7 +52,7 @@ using json_val = std::variant<
 
 struct JSONToken {
     JSONTokenType type;
-    json_val value = std::nullopt;
+    json_val value = std::monostate{};
 };
 ```
 
