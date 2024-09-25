@@ -1,6 +1,6 @@
 # bettercppsax
 
-This repository hold bettercppsax, a headers only C++20 library (other than its dependencies) to help build
+This repository hold bettercppsax, a headers only C++23 library (other than its dependencies) to help build
 efficient, easy and clean parsers for JSON files on top of industry standard SAX parsers. 
 
 ## What is this all about? 
