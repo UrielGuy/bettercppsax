@@ -168,7 +168,7 @@ auto parse_my_type = [&my_type, first = false](const JSONToken& token) mutable {
 While fully capbale, this is not a great API. It's cumbursome and not very composable or reusable. 
 Let's see how we can improve. 
 
-### Let's make it all pretty
+### Creating the external API
 
 As much as this is already a powerful parser, it still requires a user to know quite a bit about the internal
 structure of what we do, and some repetition does occur, such as defining the parsers quite often.  We can
