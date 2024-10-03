@@ -5,6 +5,8 @@
 #include <fstream>
 #include "../bettercppsax.h"
 
+using namespace bettercppsax;
+
 struct RGB_t {
     uint8_t r, g, b;
 };
@@ -45,61 +47,109 @@ struct show_data {
     std::vector<drone_data> performances;
 
 };
+auto ParseRGB(RGB_t& rgb) {
+    using namespace bettercppsax::core;
+
+    return NewParser([&rgb](const JSONToken& token) {
+        if (token.type == JSONTokenType::string) {
+            auto& str = std::get<std::string_view>(token.value);
+            if (!str.starts_with("#")) return ParseError("Invalid string for color");
+            uint32_t value = std::strtol(str.data() + 1, nullptr, 16);
+            rgb.r = (value & 0xFF0000) >> 16;
+            rgb.g = (value & 0xFF00) >> 8;
+            rgb.b = (value & 0xFF);
+            return ParserDone();
+        }
+        else if (token.type == JSONTokenType::start_array) {
+            return NewParser([&rgb, index = 0](const JSONToken& token) mutable {
+                if (index == 3) {
+                    if (token.type == JSONTokenType::end_array) return ParserDone();
+                    else return ParseError("Unexpected type");
+                }
+                else if (index++ == 0) return NewParserRepeatToken(ParseScalar(rgb.r).new_parser.value());
+                else if (index++ == 1) return NewParserRepeatToken(ParseScalar(rgb.g).new_parser.value());
+                else if (index++ == 2) return NewParserRepeatToken(ParseScalar(rgb.b).new_parser.value());
+                // Should be std::unreachable in C++23
+                else return ParseError("Should never get here");
+                } );
+        }
+        else if (token.type == JSONTokenType::start_object) {
+            return NewParser([&rgb, index = 0](const JSONToken& token) mutable {
+                if (index == 3) {
+                    if (token.type == JSONTokenType::end_object) return ParserDone();
+                    else return ParseError("Unexpected type");
+                }
+                else if (token.type != JSONTokenType::key) return ParseError("Unexpected token");
+                auto key = std::get<std::string_view>(token.value);
+                if (key == "r") return ParseScalar(rgb.r);
+                else if (key == "g") return ParseScalar(rgb.g);
+                else if (key == "b") return ParseScalar(rgb.b);
+                else return ParseError("Unexpected value");
+                });
+
+        }
+        else return ParseError("Unexpected token type");
+    });
+}
+
 
 class VVIZParser {
 private:
     static auto ParseTraversal(std::string_view key, drone_location_data& traversal) {
-        if (key == "dx") return ParseNumber(traversal.location_delta.x);
-        else if (key == "dy") return ParseNumber(traversal.location_delta.y);
-        else if (key == "dz") return ParseNumber(traversal.location_delta.z);
-        else if (key == "dt") { traversal.delay_seconds = 1.0; return ParseNumber(traversal.delay_seconds.value()); }
+        if (key == "dx") return ParseScalar(traversal.location_delta.x);
+        else if (key == "dy") return ParseScalar(traversal.location_delta.y);
+        else if (key == "dz") return ParseScalar(traversal.location_delta.z);
+        else if (key == "dt") { traversal.delay_seconds = 1.0; return ParseScalar(traversal.delay_seconds.value()); }
         else return ParseError("Unexpected key in traversal list");
     }
 
     static auto ParseAgentData(std::string_view key, drone_data& drone) {
-        if (key == "homeX") return ParseNumber(drone.start_pos.x);
-        else if (key == "homeY") return ParseNumber(drone.start_pos.y);
-        else if (key == "homeZ") return ParseNumber(drone.start_pos.z);
-        else if (key == "agentTraversal") return ParseObjectList(drone.agent_traversal, ParseTraversal);
+        if (key == "homeX") return ParseScalar(drone.start_pos.x);
+        else if (key == "homeY") return ParseScalar(drone.start_pos.y);
+        else if (key == "homeZ") return ParseScalar(drone.start_pos.z);
+        else if (key == "agentTraversal") return ParseList(drone.agent_traversal, ParseTraversal);
         else return SkipNextElement();
     }
 
     static auto ParseDroneAction(std::string_view key, drone_action& action) {
-        if (key == "r") return ParseNumber(action.color.r);
-        else if (key == "g") return ParseNumber(action.color.g);
-        else if (key == "b") return ParseNumber(action.color.b);
-        else if (key == "frames") { action.frames = 1; return ParseNumber(action.frames.value()); }
+        if (key == "r") return ParseScalar(action.color.r);
+        else if (key == "g") return ParseScalar(action.color.g);
+        else if (key == "b") return ParseScalar(action.color.b);
+        else if (key == "frames") { action.frames = 1; return ParseScalar(action.frames.value()); }
         else return ParseError("Unexpected key in action ");
     }
 
     static auto ParseDronePayload(std::string_view key, drone_payload& payload) {
-        if (key == "id") return ParseNumber(payload.id);
-        else if (key == "type") return ParseString(payload.type);
-        else if (key == "payloadActions") return ParseObjectList(payload.payload_actions, ParseDroneAction);
+        if (key == "id") return ParseScalar(payload.id);
+        else if (key == "type") return ParseScalar(payload.type);
+        else if (key == "payloadActions") return ParseList(payload.payload_actions, ParseDroneAction);
         else return SkipNextElement();
     }
 
     static auto ParsePerformance(std::string_view key, drone_data& drone) {
-        if (key == "id") return ParseNumber(drone.id);
+        if (key == "id") return ParseScalar(drone.id);
         else if (key == "agentDescription") return ParseObject<drone_data>(drone, ParseAgentData);
-        else if (key == "payloadDescription") return ParseObjectList(drone.payload_actions, ParseDronePayload);
+        else if (key == "payloadDescription") return ParseList(drone.payload_actions, ParseDronePayload);
         else return SkipNextElement();
     }
 public:
     static auto ParseRoot(std::string_view key, show_data& data)  {
-        if (key == "version") return ParseString(data.version);
-        else if (key == "defaultPositionRate") return ParseNumber(data.defaultPositionRate);
-        else if (key == "defaultColorRate") return ParseNumber(data.defaultColorRate);
-        else if (key == "timeOffsetSecs") return ParseNumber(data.timeOffsetSecs);
-        else if (key == "performances") return ParseObjectList(data.performances, ParsePerformance);
+        if (key == "version") return ParseScalar(data.version);
+        else if (key == "defaultPositionRate") return ParseScalar(data.defaultPositionRate);
+        else if (key == "defaultColorRate") return ParseScalar(data.defaultColorRate);
+        else if (key == "timeOffsetSecs") return ParseScalar(data.timeOffsetSecs);
+        else if (key == "performances") return ParseList(data.performances, ParsePerformance);
         else return SkipNextElement();
     }
 };
 
 int main(int argc, char** argv) {
-    show_data show;
-    SaxParser parser;
-    uint64_t fu;
-    std::ifstream f(argv[1]);
-    parser.ParseJSON<show_data>(f, show, VVIZParser::ParseRoot);
+    show_data s;
+    auto parse_res = bettercppsax::ParseJson<show_data>(std::ifstream(argv[1]), s,  VVIZParser::ParseRoot);
+    
+    if (!parse_res) {
+        std::cout << "Failed parsing with error:\n" << parse_res.error() << std::endl;
+        return -1;
+    }
+    
 }
