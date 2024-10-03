@@ -13,9 +13,9 @@
 
 #include "rapidjson/reader.h"
 #include "rapidjson/istreamwrapper.h"
-#include "yaml-cpp/parser.h"
-#include "yaml-cpp/anchor.h"
-#include "yaml-cpp/eventhandler.h"
+//#include "yaml-cpp/parser.h"
+//#include "yaml-cpp/anchor.h"
+//#include "yaml-cpp/eventhandler.h"
 
 /// <summary>
 /// All possible types of JSON tokens, taken fron the underlying SAX reader.
@@ -281,7 +281,7 @@ inline ParseResult ParseObject(OBJECT& object, const JSONObjectParser<OBJECT>& h
 
 
 class SaxParser {
-    struct inner_parser : public rapidjson::BaseReaderHandler<rapidjson::UTF8<>, inner_parser>, public YAML::EventHandler {
+    struct inner_parser : public rapidjson::BaseReaderHandler<rapidjson::UTF8<>, inner_parser>/*, public YAML::EventHandler */ {
         explicit inner_parser(SaxParser& owner) : owner(owner) {}
     private:
         inline bool ParseToken(const JSONToken& token) {
@@ -319,17 +319,17 @@ class SaxParser {
                                     { std::cout << "key\n"; return ParseToken({ .type = JSONTokenType::key , .value = std::string_view(str, length) }); }
 
 
-        // YAML parsing
-        void OnDocumentStart(const YAML::Mark& mark) final { ParseToken({ .type = JSONTokenType::start_object }); }
-        void OnDocumentEnd() final { ParseToken({ .type = JSONTokenType::end_object }); }
-        void OnNull(const YAML::Mark& mark, YAML::anchor_t anchor) final { ParseToken({ .type = JSONTokenType::null }); }
-        void OnAlias(const YAML::Mark& mark, YAML::anchor_t anchor) final { throw std::runtime_error("Aliases not currently supported"); }
-        void OnScalar(const YAML::Mark& mark, const std::string& tag, YAML::anchor_t anchor, const std::string& value) final { if (!tag.empty()) ParseToken({ .type = JSONTokenType::key, .value = value });  ParseToken({ .type = JSONTokenType::string }); }
-        void OnSequenceStart(const YAML::Mark& mark, const std::string& tag, YAML::anchor_t anchor, YAML::EmitterStyle::value style) final { if (!tag.empty()) ParseToken({ .type = JSONTokenType::key }); ParseToken({ .type = JSONTokenType::start_array }); }
-        void OnSequenceEnd() final { ParseToken({ .type = JSONTokenType::end_array }); }
-        void OnMapStart(const YAML::Mark& mark, const std::string& tag, YAML::anchor_t anchor, YAML::EmitterStyle::value style) final { if (!tag.empty()) ParseToken({ .type = JSONTokenType::key }); ParseToken({ .type = JSONTokenType::start_object }); }
-        void OnMapEnd() final { ParseToken({ .type = JSONTokenType::end_object }); }
-        void OnAnchor(const YAML::Mark& /*mark*/, const std::string& /*anchor_name*/) {   }
+        //// YAML parsing
+        //void OnDocumentStart(const YAML::Mark& mark) final { ParseToken({ .type = JSONTokenType::start_object }); }
+        //void OnDocumentEnd() final { ParseToken({ .type = JSONTokenType::end_object }); }
+        //void OnNull(const YAML::Mark& mark, YAML::anchor_t anchor) final { ParseToken({ .type = JSONTokenType::null }); }
+        //void OnAlias(const YAML::Mark& mark, YAML::anchor_t anchor) final { throw std::runtime_error("Aliases not currently supported"); }
+        //void OnScalar(const YAML::Mark& mark, const std::string& tag, YAML::anchor_t anchor, const std::string& value) final { if (!tag.empty()) ParseToken({ .type = JSONTokenType::key, .value = value });  ParseToken({ .type = JSONTokenType::string }); }
+        //void OnSequenceStart(const YAML::Mark& mark, const std::string& tag, YAML::anchor_t anchor, YAML::EmitterStyle::value style) final { if (!tag.empty()) ParseToken({ .type = JSONTokenType::key }); ParseToken({ .type = JSONTokenType::start_array }); }
+        //void OnSequenceEnd() final { ParseToken({ .type = JSONTokenType::end_array }); }
+        //void OnMapStart(const YAML::Mark& mark, const std::string& tag, YAML::anchor_t anchor, YAML::EmitterStyle::value style) final { if (!tag.empty()) ParseToken({ .type = JSONTokenType::key }); ParseToken({ .type = JSONTokenType::start_object }); }
+        //void OnMapEnd() final { ParseToken({ .type = JSONTokenType::end_object }); }
+        //void OnAnchor(const YAML::Mark& /*mark*/, const std::string& /*anchor_name*/) {   }
 
 
     private:
@@ -357,12 +357,12 @@ public:
             });
     }
 
-    void ParseYAML(std::istream& input, const JSONParseFunc& root_parser) {
-        parser_stack.push(root_parser);
-        YAML::Parser parser(input);
-        inner_parser ip{ *this };
-        while (parser.HandleNextDocument(ip));
-    }
+    //void ParseYAML(std::istream& input, const JSONParseFunc& root_parser) {
+    //    parser_stack.push(root_parser);
+    //    YAML::Parser parser(input);
+    //    inner_parser ip{ *this };
+    //    while (parser.HandleNextDocument(ip));
+    //}
 
 private:
     static void DefaultErrorHandler(std::string_view message) {

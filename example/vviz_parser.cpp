@@ -99,6 +99,7 @@ public:
 int main(int argc, char** argv) {
     show_data show;
     SaxParser parser;
+    uint64_t fu;
     std::ifstream f(argv[1]);
     parser.ParseJSON<show_data>(f, show, VVIZParser::ParseRoot);
 }
