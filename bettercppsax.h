@@ -12,6 +12,7 @@
 #include <exception>
 #include <charconv>
 #include <expected>
+#include <utility>
 
 #include "rapidjson/reader.h"
 #include "rapidjson/istreamwrapper.h"
@@ -93,13 +94,13 @@ namespace bettercppsax {
 
 
         template <class ContainerType>
-        concept SexContainer = requires(
+        concept SaxContainer = requires(
             ContainerType & a,
             typename ContainerType::value_type const value_type
             )
         {
             a.emplace_back();
-                requires std::is_default_constructible_v<decltype(value_type)>;
+            requires std::is_default_constructible_v<decltype(value_type)>;
         };
 
         class SaxParser {
@@ -107,48 +108,70 @@ namespace bettercppsax {
                 explicit inner_parser(SaxParser& owner) : owner(owner) {}
             private:
                 inline bool ParseToken(const JSONToken& token) {
-                    const auto& res = owner.parser_stack.top()(token);
+                    auto res = owner.parser_stack.top()(token);
 
                     switch (res.type) {
-                    case ParseResultType::KeepParsing: return true;
-                    case ParseResultType::ParserDone: owner.parser_stack.pop(); return true;
-                    case ParseResultType::Error: owner.on_error(std::format("Bad JSON item: {}", res.error.value())); return false;
-                    case ParseResultType::NewParser: owner.parser_stack.push(res.new_parser.value()); return true;
-                    case ParseResultType::NewParser_ReplayCurrent: owner.parser_stack.push(res.new_parser.value());  return ParseToken(token);
-                    default: return false;
+                    case ParseResultType::KeepParsing: 
+                        return true;
+                    case ParseResultType::ParserDone: 
+                        owner.parser_stack.pop(); 
+                        return true;
+                    case ParseResultType::Error: 
+                        owner.on_error(std::format("Bad JSON item: {}", res.error.value())); 
+                        return false;
+                    case ParseResultType::NewParser: 
+                        owner.parser_stack.emplace(std::move(res.new_parser.value())); 
+                        return true;
+                    case ParseResultType::NewParser_ReplayCurrent: 
+                        owner.parser_stack.emplace(std::move(res.new_parser.value()));  
+                        return ParseToken(token);
+                    default: 
+                        std::unreachable();
                     }
                 }
             public:
 
                 // JSON parsing
-                bool Null() { return ParseToken({ .type = JSONTokenType::null }); }
-                bool Bool(bool val) { return ParseToken({ .type = JSONTokenType::boolean,           .value = val }); }
-                bool Int(int val) { return ParseToken({ .type = JSONTokenType::number_integer,    .value = val }); }
-                bool Int64(int64_t val) { return ParseToken({ .type = JSONTokenType::number_integer,    .value = val }); }
-                bool UInt(unsigned int val) { return ParseToken({ .type = JSONTokenType::number_unsigned,   .value = (uint64_t)val }); }
-                bool UInt64(uint64_t val) { return ParseToken({ .type = JSONTokenType::number_unsigned,   .value = val }); }
-                bool Double(double val) { return ParseToken({ .type = JSONTokenType::number_float,      .value = val }); }
-                bool String(const char* str, rapidjson::SizeType length, bool copy) { return ParseToken({ .type = JSONTokenType::string ,           .value = std::string_view(str, length) }); }
-                bool StartObject() { return ParseToken({ .type = JSONTokenType::start_object }); }
-                bool EndObject(rapidjson::SizeType memberCount) { return ParseToken({ .type = JSONTokenType::end_object }); }
-                bool StartArray() { return ParseToken({ .type = JSONTokenType::start_array }); }
-                bool EndArray(rapidjson::SizeType memberCount) { return ParseToken({ .type = JSONTokenType::end_array }); }
-                bool Key(const char* str, rapidjson::SizeType length, bool copy) { return ParseToken({ .type = JSONTokenType::key ,              .value = std::string_view(str, length) }); }
+                bool Null() { 
+                    return ParseToken({ .type = JSONTokenType::null }); 
+                }
+                bool Bool(bool val) { 
+                    return ParseToken({ .type = JSONTokenType::boolean,           .value = val }); 
+                }
+                bool Int(int val) {
+                    return ParseToken({ .type = JSONTokenType::number_integer,    .value = val });
+                }
+                bool Int64(int64_t val) { 
+                    return ParseToken({ .type = JSONTokenType::number_integer,    .value = val });
+                }
+                bool Uint(unsigned int val) { 
+                    return ParseToken({ .type = JSONTokenType::number_unsigned,   .value = (uint64_t)val });
+                }
+                bool Uint64(uint64_t val) { 
+                    return ParseToken({ .type = JSONTokenType::number_unsigned,   .value = val });
+                }
+                bool Double(double val) { 
+                    return ParseToken({ .type = JSONTokenType::number_float,      .value = val });
+                }
+                bool String(const char* str, rapidjson::SizeType length, bool copy) { 
+                    return ParseToken({ .type = JSONTokenType::string ,           .value = std::string_view(str, length) });
+                }
+                bool StartObject() { 
+                    return ParseToken({ .type = JSONTokenType::start_object });
+                }
+                bool EndObject(rapidjson::SizeType memberCount) { 
+                    return ParseToken({ .type = JSONTokenType::end_object });
+                }
+                bool StartArray() { 
+                    return ParseToken({ .type = JSONTokenType::start_array });
+                }
+                bool EndArray(rapidjson::SizeType memberCount) { 
+                    return ParseToken({ .type = JSONTokenType::end_array });
+                }
+                bool Key(const char* str, rapidjson::SizeType length, bool copy) { 
+                    return ParseToken({ .type = JSONTokenType::key ,              .value = std::string_view(str, length) });
+                }
 
-                /*
-                // YAML parsing
-                void OnDocumentStart(const YAML::Mark& mark) final { ParseToken({ .type = JSONTokenType::start_object }); }
-                void OnDocumentEnd() final { ParseToken({ .type = JSONTokenType::end_object }); }
-                void OnNull(const YAML::Mark& mark, YAML::anchor_t anchor) final { ParseToken({ .type = JSONTokenType::null }); }
-                void OnAlias(const YAML::Mark& mark, YAML::anchor_t anchor) final { throw std::runtime_error("Aliases not currently supported"); }
-                void OnScalar(const YAML::Mark& mark, const std::string& tag, YAML::anchor_t anchor, const std::string& value) final { if (!tag.empty()) ParseToken({ .type = JSONTokenType::key, .value = value });  ParseToken({ .type = JSONTokenType::string }); }
-                void OnSequenceStart(const YAML::Mark& mark, const std::string& tag, YAML::anchor_t anchor, YAML::EmitterStyle::value style) final { if (!tag.empty()) ParseToken({ .type = JSONTokenType::key }); ParseToken({ .type = JSONTokenType::start_array }); }
-                void OnSequenceEnd() final { ParseToken({ .type = JSONTokenType::end_array }); }
-                void OnMapStart(const YAML::Mark& mark, const std::string& tag, YAML::anchor_t anchor, YAML::EmitterStyle::value style) final { if (!tag.empty()) ParseToken({ .type = JSONTokenType::key }); ParseToken({ .type = JSONTokenType::start_object }); }
-                void OnMapEnd() final { ParseToken({ .type = JSONTokenType::end_object }); }
-                void OnAnchor(const YAML::Mark& /*mark* /, const std::string& /*anchor_name* /) {   }
-
-                */
             private:
                 SaxParser& owner;
             };
@@ -166,14 +189,7 @@ namespace bettercppsax {
                 inner_parser ip{ *this };
                 reader.Parse(wrapper, ip);
             }
-            /*
-                    void ParseYAML(std::istream& input, const JSONParseFunc& root_parser) {
-                        parser_stack.push(root_parser);
-                        YAML::Parser parser(input);
-                        inner_parser ip{ *this };
-                        while (parser.HandleNextDocument(ip));
-                    }
-                    */
+
         private:
             static void DefaultErrorHandler(std::string_view message) {
                 throw std::runtime_error(std::format("Failed parsing JSON with the followind error:\n{}", message));
@@ -201,13 +217,13 @@ namespace bettercppsax {
 
     namespace core {
     [[nodiscard]]
-    inline ParseResult NewParser(const JSONParseFunc parser) {
-        return ParseResult{ .type = ParseResultType::NewParser, .new_parser = parser };
+    inline ParseResult NewParser(JSONParseFunc&& parser) {
+        return ParseResult{ .type = ParseResultType::NewParser, .new_parser = std::move(parser) };
     }
 
     [[nodiscard]]
-    inline ParseResult NewParserRepeatToken(const JSONParseFunc parser) {
-        return ParseResult{ .type = ParseResultType::NewParser_ReplayCurrent, .new_parser = parser };
+    inline ParseResult NewParserRepeatToken(JSONParseFunc&& parser) {
+        return ParseResult{ .type = ParseResultType::NewParser_ReplayCurrent, .new_parser = std::move(parser) };
     }
 
         [[nodiscard]]
@@ -293,12 +309,12 @@ namespace bettercppsax {
         }
 
         template<typename COLLECTION>
-            requires SexContainer<COLLECTION>
+            requires SaxContainer<COLLECTION>
         [[nodiscard]]
-        inline ParseResult ParseList(COLLECTION& collection, std::function<JSONParseFunc(typename COLLECTION::value_type&)> get_item_parser_func) {
+        inline ParseResult ParseList(COLLECTION& collection, std::function<JSONParseFunc(typename COLLECTION::value_type&)>&& get_item_parser_func) {
             return ParseResult{
                 .type = ParseResultType::NewParser,
-                .new_parser = [&collection, get_item_parser_func, first = true](const JSONToken& token) mutable {
+                .new_parser = [&collection, get_item_parser_func = std::move(get_item_parser_func), first = true](const JSONToken& token) mutable {
                     if (first) {
                         first = false;
                         if (token.type != JSONTokenType::start_array) return ParseError("No open array token for list");
@@ -371,39 +387,45 @@ namespace bettercppsax {
 
 
     template<typename COLLECTION>
-        requires core::SexContainer<COLLECTION>
+        requires core::SaxContainer<COLLECTION>
     [[nodiscard]]
-    inline auto ParseList(COLLECTION& collection, const core::JSONScalarParser<typename COLLECTION::value_type> get_item_parser_func = ParseScalar<typename COLLECTION::value_type>) {
-        return core::ParseList(collection, [get_item_parser_func](typename COLLECTION::value_type& target) { return get_item_parser_func(target).new_parser.value(); });
+    inline auto ParseList(COLLECTION& collection, const core::JSONScalarParser<typename COLLECTION::value_type>& get_item_parser_func = ParseScalar<typename COLLECTION::value_type>) {
+        return core::ParseList(collection, [get_item_parser_func = std::move(get_item_parser_func)](typename COLLECTION::value_type& target) { return get_item_parser_func(target).new_parser.value(); });
     }
 
     template<typename COLLECTION>
-        requires core::SexContainer<COLLECTION>
+        requires core::SaxContainer<COLLECTION>
     [[nodiscard]]
     inline auto ParseList(COLLECTION& collection, const core::JSONObjectParser<typename COLLECTION::value_type>& get_item_parser_func) {
         using namespace core;
         return ParseList(
             collection,
-            [get_item_parser_func](typename COLLECTION::value_type& target) {
+            [get_item_parser_func = std::move(get_item_parser_func)](typename COLLECTION::value_type& target) {
                 return ParseObject(target, get_item_parser_func).new_parser.value();
             }
         );
     }
 
-    // In C++23, make into a std::expected
     /// Ovveride for the parse function that returns an optional error string if parsing failed.
     template<typename T>
-    std::expected<void, std::string> ParseJson(std::istream&& stream, T& object, const core::JSONObjectParser<T> root_parser) {
+    std::expected<void, std::string> ParseJson(std::istream& stream, T& object, const core::JSONObjectParser<T> root_parser) {
         std::optional<std::string> res;
         core::SaxParser parser([&res](std::string_view error) {res = error; });
-        parser.ParseJSON(stream, ParseObject<T>(object,  root_parser).new_parser.value());
+        parser.ParseJSON(stream, ParseObject<T>(object, root_parser).new_parser.value());
         if (res.has_value()) return std::unexpected(res.value());
         else return std::expected<void, std::string>{};
     }
 
+    template<typename T>
+    std::expected<void, std::string> ParseJson(std::istream&& stream, T& object, const core::JSONObjectParser<T> root_parser) {
+        return ParseJson((std::istream &)stream, object, root_parser);
+    }
+
+
+    
     /// Ovveride for the parse function that returns an optional error string if parsing failed.
     template<typename T>
-    std::expected<T, std::string> ParseJson(std::istream&& stream, const core::JSONObjectParser<T> root_parser) {
+    std::expected<T, std::string> ParseJson(std::istream& stream, const core::JSONObjectParser<T> root_parser) {
         static_assert(std::is_default_constructible_v<T>, "To use the overload that doesn't take an object, the type parsed must be default constructible");
         T object;
         std::optional<std::string> res;
@@ -416,4 +438,10 @@ namespace bettercppsax {
             return object;
         }
     }
+
+    template<typename T>
+    std::expected<T, std::string> ParseJson(std::istream&& stream, const core::JSONObjectParser<T> root_parser) {
+        return ParseJson((std::istream &)stream, root_parser);
+    }
+
 }// namespace bettercppsax
