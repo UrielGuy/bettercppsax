@@ -31,7 +31,6 @@ struct drone_payload {
     std::vector<drone_action> payload_actions;
 };
 
-
 struct drone_data {
     int id;
     XYZ_t start_pos;
@@ -45,8 +44,8 @@ struct show_data {
     double defaultColorRate;
     double timeOffsetSecs;
     std::vector<drone_data> performances;
-
 };
+
 auto ParseRGB(RGB_t& rgb) {
     using namespace bettercppsax::core;
 
