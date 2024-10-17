@@ -125,26 +125,26 @@ private:
         else                                   return SkipNextElement();
     }
 
-    static auto ParsePerformance(std::string_view key, drone_data& drone) {
+    static auto ParseDroneData(std::string_view key, drone_data& drone) {
         if      (key == "id")                  return ParseScalar(drone.id);
         else if (key == "agentDescription")    return ParseObject<drone_data>(drone, ParseAgentData);
         else if (key == "payloadDescription")  return ParseList(drone.payload_actions, ParseDronePayload);
         else                                   return SkipNextElement();
     }
 public:
-    static auto ParseRoot(std::string_view key, show_data& data)  {
+    static auto ParseShowData(std::string_view key, show_data& data)  {
         if      (key == "version")             return ParseScalar(data.version);
         else if (key == "defaultPositionRate") return ParseScalar(data.defaultPositionRate);
         else if (key == "defaultColorRate")    return ParseScalar(data.defaultColorRate);
         else if (key == "timeOffsetSecs")      return ParseScalar(data.timeOffsetSecs);
-        else if (key == "performances")        return ParseList(data.performances, ParsePerformance);
+        else if (key == "performances")        return ParseList(data.performances, ParseDroneData);
         else                                   return SkipNextElement();
     }
 };
 
 int main(int argc, char** argv) {
     show_data s;
-    auto parse_res = bettercppsax::ParseJson<show_data>(std::ifstream(argv[1]), s,  VVIZParser::ParseRoot);
+    auto parse_res = bettercppsax::ParseJson<show_data>(std::ifstream(argv[1]), s,  VVIZParser::ParseShowData);
     
     if (!parse_res) {
         std::cout << "Failed parsing with error:\n" << parse_res.error() << std::endl;
