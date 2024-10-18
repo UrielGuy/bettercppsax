@@ -20,9 +20,7 @@
 namespace bettercppsax {
 
     namespace core {
-        /// <summary>
-        /// All possible types of JSON tokens, taken fron the underlying SAX reader.
-        /// </summary>
+        // All possible types of JSON tokens, taken fron the underlying SAX reader.
         enum class JSONTokenType {
             null,
             boolean,
@@ -54,9 +52,7 @@ namespace bettercppsax {
             json_val value = std::monostate{};
         };
 
-        /// <summary>
-        /// for specifying the handling of the next token.
-        /// </summary>
+        // for specifying the handling of the next token.
         enum class ParseResultType {
             // Send the next token to the same parser.
             KeepParsing,
@@ -70,10 +66,8 @@ namespace bettercppsax {
             Error
         };
 
-        /// <summary>
-        /// Denotes the action to take after parsing a token. See ParseResultType for more details.
-        /// This struct adds the optional error or new parser.
-        /// </summary>
+        // Denotes the action to take after parsing a token. See ParseResultType for more details.
+        // This struct adds the optional error or new parser.
         struct ParseResult {
             ParseResultType type;
             std::optional<std::string> error;
@@ -81,9 +75,7 @@ namespace bettercppsax {
 
         };
 
-        /// <summary>
-        /// A JSON SAX parser function type.
-        /// </summary>
+        // A JSON SAX parser function type.
         using JSONParseFunc = std::function<ParseResult(const JSONToken&)>;
 
         template <typename T>
@@ -104,7 +96,7 @@ namespace bettercppsax {
         };
 
         class SaxParser {
-            struct inner_parser : public rapidjson::BaseReaderHandler<rapidjson::UTF8<>, inner_parser>/*, public YAML::EventHandler*/ {
+            struct inner_parser {
                 explicit inner_parser(SaxParser& owner) : owner(owner) {}
             private:
                 inline bool ParseToken(const JSONToken& token) {
@@ -153,10 +145,13 @@ namespace bettercppsax {
                 bool Double(double val) { 
                     return ParseToken({ .type = JSONTokenType::number_float,      .value = val });
                 }
-                bool String(const char* str, rapidjson::SizeType length, bool copy) { 
+                bool String(const char* str, rapidjson::SizeType length, bool copy) {
                     return ParseToken({ .type = JSONTokenType::string ,           .value = std::string_view(str, length) });
                 }
-                bool StartObject() { 
+                bool RawNumber(const char* str, rapidjson::SizeType length, bool copy) {
+                    return ParseToken({ .type = JSONTokenType::string ,           .value = std::string_view(str, length) });
+                }
+                bool StartObject() {
                     return ParseToken({ .type = JSONTokenType::start_object });
                 }
                 bool EndObject(rapidjson::SizeType memberCount) { 
@@ -187,7 +182,11 @@ namespace bettercppsax {
                 rapidjson::Reader reader;
                 auto wrapper = rapidjson::IStreamWrapper(input);
                 inner_parser ip{ *this };
-                reader.Parse(wrapper, ip);
+                reader.Parse<
+                    rapidjson::ParseFlag::kParseDefaultFlags | 
+                    rapidjson::ParseFlag::kParseNumbersAsStringsFlag | 
+                    rapidjson::ParseFlag::kParseInsituFlag>
+                    (wrapper, ip);
             }
 
         private:
@@ -445,3 +444,23 @@ namespace bettercppsax {
     }
 
 }// namespace bettercppsax
+
+using namespace rapidjson;
+using Ch = char;
+
+class Handler {
+    bool Null();
+    bool Bool(bool b);
+    bool Int(int i);
+    bool Uint(unsigned i);
+    bool Int64(int64_t i);
+    bool Uint64(uint64_t i);
+    bool Double(double d);
+    bool RawNumber(const Ch* str, SizeType length, bool copy);
+    bool String(const Ch* str, SizeType length, bool copy);
+    bool StartObject();
+    bool Key(const Ch* str, SizeType length, bool copy);
+    bool EndObject(SizeType memberCount);
+    bool StartArray();
+    bool EndArray(SizeType elementCount);
+};
