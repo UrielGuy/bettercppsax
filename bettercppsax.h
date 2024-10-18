@@ -54,7 +54,6 @@ namespace bettercppsax {
 
         // for specifying the handling of the next token.
         enum class ParseResultType {
-            // Send the next token to the same parser.
             KeepParsing,
             // Send the next token to the previous parser, who submitted the current one.
             ParserDone,
@@ -99,21 +98,18 @@ namespace bettercppsax {
             struct inner_parser {
                 explicit inner_parser(SaxParser& owner) : owner(owner) {}
             private:
+
+                std::stack<JSONParseFunc> parser_stack;
+                std::function<void(std::string_view)> on_error = [](std::string_view error) { DefaultErrorHandler(error); };
+
                 inline bool ParseToken(const JSONToken& token) {
                     auto res = owner.parser_stack.top()(token);
 
                     switch (res.type) {
-                    case ParseResultType::KeepParsing: 
-                        return true;
-                    case ParseResultType::ParserDone: 
-                        owner.parser_stack.pop(); 
-                        return true;
-                    case ParseResultType::Error: 
-                        owner.on_error(std::format("Bad JSON item: {}", res.error.value())); 
-                        return false;
-                    case ParseResultType::NewParser: 
-                        owner.parser_stack.emplace(std::move(res.new_parser.value())); 
-                        return true;
+                    case ParseResultType::KeepParsing:  return true;
+                    case ParseResultType::ParserDone:  owner.parser_stack.pop(); return true;
+                    case ParseResultType::Error: owner.on_error(std::format("Bad Token: {}", res.error.value()));  return false;
+                    case ParseResultType::NewParser: owner.parser_stack.emplace(std::move(res.new_parser.value())); return true;
                     case ParseResultType::NewParser_ReplayCurrent: 
                         owner.parser_stack.emplace(std::move(res.new_parser.value()));  
                         return ParseToken(token);
