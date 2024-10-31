@@ -46,7 +46,15 @@ struct show_data {
     std::vector<drone_data> performances;
 };
 
-auto ParseRGB(RGB_t& rgb) {
+
+auto ParseRGB(std::string_view key, RGB_t& target) {
+    if (key == "r") return ParseScalar(target.r);
+    else if (key == "g") return ParseScalar(target.r);
+    else if (key == "b") return ParseScalar(target.b);
+    else return ParseError("Invalid Key for RGB");
+}
+
+auto ParseScalar(RGB_t& rgb) {
     using namespace bettercppsax::core;
 
     return NewParser([&rgb](const JSONToken& token) {
@@ -73,19 +81,7 @@ auto ParseRGB(RGB_t& rgb) {
                 } );
         }
         else if (token.type == JSONTokenType::start_object) {
-            return NewParser([&rgb, index = 0](const JSONToken& token) mutable {
-                if (index == 3) {
-                    if (token.type == JSONTokenType::end_object) return ParserDone();
-                    else return ParseError("Unexpected type");
-                }
-                else if (token.type != JSONTokenType::key) return ParseError("Unexpected token");
-                auto key = std::get<std::string_view>(token.value);
-                if (key == "r") return ParseScalar(rgb.r);
-                else if (key == "g") return ParseScalar(rgb.g);
-                else if (key == "b") return ParseScalar(rgb.b);
-                else return ParseError("Unexpected value");
-                });
-
+            return NewParserRepeatToken(ParseObject<RGB_t>(rgb, ParseRGB).new_parser.value());
         }
         else return ParseError("Unexpected token type");
     });
@@ -131,7 +127,7 @@ private:
         else if (key == "payloadDescription")  return ParseList(drone.payload_actions, ParseDronePayload);
         else                                   return SkipNextElement();
     }
-public:
+    public:
     static auto ParseShowData(std::string_view key, show_data& data)  {
         if      (key == "version")             return ParseScalar(data.version);
         else if (key == "defaultPositionRate") return ParseScalar(data.defaultPositionRate);
@@ -151,4 +147,49 @@ int main(int argc, char** argv) {
         return -1;
     }
     
+}
+#undef ParseResult
+
+using namespace bettercppsax;
+using namespace bettercppsax::core;
+
+/*
+for this JSON: 
+{
+    name: Uriel Guy,
+    project: LED Zeppelin,
+    age: 5
+
+    job: {
+        company: Hindenburg Adventures
+        position: Pilot
+        salary: 5
+    }
+}
+
+*/
+struct Data {
+    std::string name;
+    std::string project;
+    int age;
+    struct Job {
+        std::string company;
+        std::string position;
+        uint64_t salary;
+    } job;
+} data;
+
+auto ParseJob(std::string_view key, Data::Job& target) {
+    if (key == "company")  return ParseScalar(target.company);
+    else if (key == "position") return ParseScalar(target.position);
+    else if (key == "salary") return ParseScalar(target.salary);
+    else return ParseError("Unexpected key");
+}
+
+auto ParseRoot(std::string_view key, Data& target) {
+    if (key == "name")  return ParseScalar(data.name);
+    else if (key == "project") return ParseScalar(data.project);
+    else if (key == "age") return ParseScalar(data.age);
+    else if (key == "job") return ParseObject<Data::Job>(target.job, ParseJob);
+    else return ParseError("Unexpected key");
 }

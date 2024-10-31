@@ -2,21 +2,23 @@
 #include <print>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <vector>
 #include <stacktrace>
 #include <unordered_map>
 #include <iostream>
+#include <spanstream>
 #include "vviz_data.h"
 
 namespace fs { using namespace std::filesystem; }
 
 struct memory_data {
-    int64_t allocations_count = 0;
-    int64_t live_allocations = 0;
-    int64_t max_live_allocations = 0;
-    int64_t memory_allocated = 0;
-    int64_t memory_used = 0;
-    int64_t max_memory_used = 0;
+    std::atomic<int64_t> allocations_count = 0;
+    std::atomic<int64_t> live_allocations = 0;
+    std::atomic<int64_t> max_live_allocations = 0;
+    std::atomic<int64_t> memory_allocated = 0;
+    std::atomic<int64_t> memory_used = 0;
+    std::atomic<int64_t> max_memory_used = 0;
 } current_memory;
 
 // Macros to get the size of a pointer (Platform dependent).
@@ -80,18 +82,31 @@ void reset_memory_tracking() {
 
 using byte = std::byte;
 
+std::vector<std::function<std::pair<std::string, size_t>()>> fake_vectors;
+
 template<typename T>
 struct fake_vector {
+
+    fake_vector() {
+        fake_vectors.push_back(
+            [count = &count]() {
+                return std::pair<std::string, size_t>{typeid(T).name(), *count};
+            }
+        );
+    }
+
     T& emplace_back() {
+        count++;
         return item;
     }
 
     void push_back(T& item) {
+        count++;
         return;
     }
 
     T item;
-
+    size_t count = 0;
 
     using value_type = T;
 };
@@ -118,7 +133,7 @@ nlohmann::json nlohmann_load_file(fs::path input_path) {
     return std::move(res);
 }
 
-nlohmann::json nlohmann_load_memory(std::vector<byte> data) {
+nlohmann::json nlohmann_load_memory(std::vector<byte>& data) {
     using namespace nlohmann;
     json res;
     res = res.parse(data.begin(), data.end());
@@ -146,7 +161,8 @@ void nlohmann_parse(const nlohmann::json& root, show_data<T>& target) {
             traversal.location_delta.y = location_data["dy"].get<double>();
             traversal.location_delta.z = location_data["dz"].get<double>();
 
-            if (location_data.contains("dt")) traversal.delay_seconds = location_data["dt"].get<double>();
+            if (location_data.contains("dt")) 
+                traversal.delay_seconds = location_data["dt"].get<double>();
         }
 
         for (const auto& payload_data : perf_data["payloadDescription"]) {
@@ -161,7 +177,8 @@ void nlohmann_parse(const nlohmann::json& root, show_data<T>& target) {
                 action.color.g = action_data["g"].get<uint8_t>();
                 action.color.b = action_data["b"].get<uint8_t>();
 
-                if (action_data.contains("frames")) action.frames = action_data["frames"].get<int>();
+                if (action_data.contains("frames")) 
+                    action.frames = action_data["frames"].get<int>();
             }
         }
     }
@@ -173,25 +190,234 @@ void nlohmann_parse(const nlohmann::json& root, show_data<T>& target) {
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/istreamwrapper.h"
 
-rapidjson::Document rapidjson_load_file(fs::path input_path) {
+using namespace rapidjson;
+
+template <typename T, typename BaseAllocator = CrtAllocator>
+class ProfilingStdAllocator :
+    public std::allocator<T>
+{
+    typedef std::allocator<T> allocator_type;
+#if RAPIDJSON_HAS_CXX11
+    typedef std::allocator_traits<allocator_type> traits_type;
+#else
+    typedef allocator_type traits_type;
+#endif
+
+public:
+    typedef BaseAllocator BaseAllocatorType;
+
+    ProfilingStdAllocator() RAPIDJSON_NOEXCEPT :
+    allocator_type(),
+        baseAllocator_()
+    { }
+
+    ProfilingStdAllocator(const ProfilingStdAllocator& rhs) RAPIDJSON_NOEXCEPT :
+        allocator_type(rhs),
+        baseAllocator_(rhs.baseAllocator_)
+    { }
+
+    template<typename U>
+    ProfilingStdAllocator(const ProfilingStdAllocator<U, BaseAllocator>& rhs) RAPIDJSON_NOEXCEPT :
+    allocator_type(rhs),
+        baseAllocator_(rhs.baseAllocator_)
+    { }
+
+#if RAPIDJSON_HAS_CXX11_RVALUE_REFS
+    ProfilingStdAllocator(ProfilingStdAllocator&& rhs) RAPIDJSON_NOEXCEPT :
+    allocator_type(std::move(rhs)),
+        baseAllocator_(std::move(rhs.baseAllocator_))
+    { }
+#endif
+#if RAPIDJSON_HAS_CXX11
+    using propagate_on_container_move_assignment = std::true_type;
+    using propagate_on_container_swap = std::true_type;
+#endif
+
+    /* implicit */
+    ProfilingStdAllocator(const BaseAllocator& baseAllocator) RAPIDJSON_NOEXCEPT :
+    allocator_type(),
+        baseAllocator_(baseAllocator)
+    { }
+
+    ~ProfilingStdAllocator() RAPIDJSON_NOEXCEPT
+    { }
+
+    template<typename U>
+    struct rebind {
+        typedef StdAllocator<U, BaseAllocator> other;
+    };
+
+    typedef typename traits_type::size_type         size_type;
+    typedef typename traits_type::difference_type   difference_type;
+
+    typedef typename traits_type::value_type        value_type;
+    typedef typename traits_type::pointer           pointer;
+    typedef typename traits_type::const_pointer     const_pointer;
+
+#if RAPIDJSON_HAS_CXX11
+
+    typedef typename std::add_lvalue_reference<value_type>::type& reference;
+    typedef typename std::add_lvalue_reference<typename std::add_const<value_type>::type>::type& const_reference;
+
+    pointer address(reference r) const RAPIDJSON_NOEXCEPT
+    {
+        return std::addressof(r);
+    }
+    const_pointer address(const_reference r) const RAPIDJSON_NOEXCEPT
+    {
+        return std::addressof(r);
+    }
+
+    size_type max_size() const RAPIDJSON_NOEXCEPT
+    {
+        return traits_type::max_size(*this);
+    }
+
+    template <typename ...Args>
+    void construct(pointer p, Args&&... args)
+    {
+        traits_type::construct(*this, p, std::forward<Args>(args)...);
+    }
+    void destroy(pointer p)
+    {
+        traits_type::destroy(*this, p);
+    }
+
+#else // !RAPIDJSON_HAS_CXX11
+
+    typedef typename allocator_type::reference       reference;
+    typedef typename allocator_type::const_reference const_reference;
+
+    pointer address(reference r) const RAPIDJSON_NOEXCEPT
+    {
+        return allocator_type::address(r);
+    }
+    const_pointer address(const_reference r) const RAPIDJSON_NOEXCEPT
+    {
+        return allocator_type::address(r);
+    }
+
+    size_type max_size() const RAPIDJSON_NOEXCEPT
+    {
+        return allocator_type::max_size();
+    }
+
+    void construct(pointer p, const_reference r)
+    {
+        allocator_type::construct(p, r);
+    }
+    void destroy(pointer p)
+    {
+        allocator_type::destroy(p);
+    }
+
+#endif // !RAPIDJSON_HAS_CXX11
+
+    template <typename U>
+    U* allocate(size_type n = 1, const void* = 0)
+    {
+        return RAPIDJSON_NAMESPACE::Malloc<U>(baseAllocator_, n);
+    }
+    template <typename U>
+    void deallocate(U* p, size_type n = 1)
+    {
+        RAPIDJSON_NAMESPACE::Free<U>(baseAllocator_, p, n);
+    }
+
+    pointer allocate(size_type n = 1, const void* = 0)
+    {
+        return allocate<value_type>(n);
+    }
+    void deallocate(pointer p, size_type n = 1)
+    {
+        deallocate<value_type>(p, n);
+    }
+
+#if RAPIDJSON_HAS_CXX11
+    using is_always_equal = std::is_empty<BaseAllocator>;
+#endif
+
+    template<typename U>
+    bool operator==(const StdAllocator<U, BaseAllocator>& rhs) const RAPIDJSON_NOEXCEPT
+    {
+        return baseAllocator_ == rhs.baseAllocator_;
+    }
+    template<typename U>
+    bool operator!=(const StdAllocator<U, BaseAllocator>& rhs) const RAPIDJSON_NOEXCEPT
+    {
+        return !operator==(rhs);
+    }
+
+    //! rapidjson Allocator concept
+    static const bool kNeedFree = BaseAllocator::kNeedFree;
+    static const bool kRefCounted = internal::IsRefCounted<BaseAllocator>::Value;
+    void* Malloc(size_t size)
+    {
+
+        current_memory.allocations_count++;
+        current_memory.live_allocations++;
+        current_memory.max_live_allocations = std::max(current_memory.max_live_allocations, current_memory.live_allocations);
+        current_memory.memory_allocated += size;
+        current_memory.memory_used += size;
+        current_memory.max_memory_used = std::max(current_memory.max_memory_used, current_memory.memory_used);
+
+        return baseAllocator_.Malloc(size);
+    }
+    void* Realloc(void* originalPtr, size_t originalSize, size_t newSize)
+    {
+        auto ret = baseAllocator_.Realloc(originalPtr, originalSize, newSize);
+        if (ret) {
+            current_memory.memory_used -= originalSize;
+            current_memory.memory_used += newSize;
+        }
+        return ret;
+    }
+    static void Free(void* ptr) RAPIDJSON_NOEXCEPT
+    {
+        if (ptr) {
+            current_memory.live_allocations--;
+            current_memory.memory_used -= getPointerSize(ptr);
+        }
+        BaseAllocator::Free(ptr);
+    }
+
+private:
+    template <typename, typename>
+    friend class StdAllocator; // access to StdAllocator<!T>.*
+
+    BaseAllocator baseAllocator_;
+};
+
+auto rapidjson_load_file(fs::path input_path) {
     using namespace rapidjson;
     
     std::ifstream f(input_path);
-    Document res;
+#ifdef TRACK_MEMORY
+    GenericDocument<UTF8<>, ProfilingStdAllocator<CrtAllocator>, CrtAllocator>
+#else
+    Document
+#endif
+        res;
     IStreamWrapper wrapper(f);
     res.ParseStream(wrapper);
     return std::move(res);
 }
 
-rapidjson::Document rapidjson_load_memory(std::vector<byte> data) {
+auto rapidjson_load_memory(std::vector<byte>& data) {
     using namespace rapidjson;
-    Document res;
+#ifdef TRACK_MEMORY
+    GenericDocument<UTF8<>, ProfilingStdAllocator<CrtAllocator>, CrtAllocator>
+#else
+    Document
+#endif
+        res;
+    res;
     res.Parse((char*)data.data(), data.size());
     return std::move(res);
 }
 
 template<template<typename> typename T>
-void rapidjson_parse(const rapidjson::Document& root, show_data<T>& target) {
+void rapidjson_parse(const auto& root, show_data<T>& target) {
     target.version = root["version"].GetString();
     target.defaultColorRate = root["defaultColorRate"].GetDouble();
     target.defaultPositionRate = root["defaultPositionRate"].GetDouble();
@@ -207,7 +433,8 @@ void rapidjson_parse(const rapidjson::Document& root, show_data<T>& target) {
             traversal.location_delta.x = location_data["dx"].GetDouble();
             traversal.location_delta.y = location_data["dy"].GetDouble();
             traversal.location_delta.z = location_data["dz"].GetDouble();
-            if (location_data.HasMember("dt")) traversal.delay_seconds = location_data["dt"].GetDouble();
+            if (location_data.HasMember("dt")) 
+                traversal.delay_seconds = location_data["dt"].GetDouble();
         }
         for (const auto& payload_data : perf_data["payloadDescription"].GetArray()) {
             auto& payload = performance.payload_actions.emplace_back();
@@ -218,7 +445,8 @@ void rapidjson_parse(const rapidjson::Document& root, show_data<T>& target) {
                 action.color.r = action_data["r"].GetUint();
                 action.color.g = action_data["g"].GetUint();
                 action.color.b = action_data["b"].GetUint();
-                if (action_data.HasMember("frames")) action.frames = action_data["frames"].GetInt();
+                if (action_data.HasMember("frames")) 
+                    action.frames = action_data["frames"].GetInt();
             }
         }
     }
@@ -231,7 +459,7 @@ simdjson::padded_string simdjson_load_file(fs::path input_path) {
     return std::move(padded_string::load(input_path.string()).value());
 }
 
-simdjson::padded_string simdjson_load_memory(std::vector<byte> data) {
+simdjson::padded_string simdjson_load_memory(std::vector<byte>& data) {
     using namespace simdjson;
     return std::move(padded_string((char*)data.data(), data.size()));
 }
@@ -365,10 +593,9 @@ std::unique_ptr<std::istream> bettercppsax_load_file(fs::path input) {
     return std::move(std::make_unique<std::ifstream>(input));
 }
 
-std::unique_ptr<std::istream> bettercppsax_load_memory(std::vector<byte> data) {
-    std::string s{ (char*)data.data(), data.size() };
-        
-    return std::move(std::make_unique<std::stringstream>(s));
+std::unique_ptr<std::istream> bettercppsax_load_memory(std::vector<byte>& data) {
+    std::span<char> s{ (char*)data.data(), data.size() };
+    return std::move(std::make_unique<std::ispanstream>(s));
 }
 
 template<template<typename> typename T>
@@ -477,12 +704,24 @@ int main(int argc, char** argv) {
     std::println("Storage:    {}", argv[3]);
     std::println("File:       {}", argv[4]);
     */
+    std::println("File: {}", input.string());
+    std::println("File Size: {}", fs::file_size(input));
+    std::println("Parser: {}", type);
+    std::println("Method mode: {}", mode);
+
+
+
 
     std::println("Load Time:  {}",
         std::chrono::duration_cast<std::chrono::milliseconds>(load_ended_time - start_time));
     std::println("Parse Time: {}",
         std::chrono::duration_cast<std::chrono::milliseconds>(parse_ended_time - load_ended_time)
     );
+
+    for (auto& item : fake_vectors) {
+        auto data = item();
+        std::println("{}: {}", data.first, data.second);
+    }
 
 #ifdef TRACK_MEMORY
     std::println("Load Memory Allocations: {}",        load_memory.allocations_count);

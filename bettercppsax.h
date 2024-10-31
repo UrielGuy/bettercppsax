@@ -80,9 +80,9 @@ namespace bettercppsax {
         template <typename T>
         using JSONObjectParser = std::function<ParseResult(std::string_view key, T& target)>;
 
-        template <typename T>
+/*        template <typename T>
         using JSONScalarParser = std::function<ParseResult(T& target)>;
-
+        */
 
         template <class ContainerType>
         concept SaxContainer = requires(
@@ -98,9 +98,6 @@ namespace bettercppsax {
             struct inner_parser {
                 explicit inner_parser(SaxParser& owner) : owner(owner) {}
             private:
-
-                std::stack<JSONParseFunc> parser_stack;
-                std::function<void(std::string_view)> on_error = [](std::string_view error) { DefaultErrorHandler(error); };
 
                 inline bool ParseToken(const JSONToken& token) {
                     auto res = owner.parser_stack.top()(token);
@@ -179,9 +176,11 @@ namespace bettercppsax {
                 auto wrapper = rapidjson::IStreamWrapper(input);
                 inner_parser ip{ *this };
                 reader.Parse<
-                    rapidjson::ParseFlag::kParseDefaultFlags | 
-                    rapidjson::ParseFlag::kParseNumbersAsStringsFlag | 
-                    rapidjson::ParseFlag::kParseInsituFlag>
+                    rapidjson::ParseFlag::kParseNoFlags 
+                    | rapidjson::ParseFlag::kParseDefaultFlags 
+                    | rapidjson::ParseFlag::kParseNumbersAsStringsFlag 
+//                    | rapidjson::ParseFlag::kParseInsituFlag 
+                >
                     (wrapper, ip);
             }
 
@@ -211,118 +210,103 @@ namespace bettercppsax {
     }
 
     namespace core {
-    [[nodiscard]]
-    inline ParseResult NewParser(JSONParseFunc&& parser) {
-        return ParseResult{ .type = ParseResultType::NewParser, .new_parser = std::move(parser) };
-    }
-
-    [[nodiscard]]
-    inline ParseResult NewParserRepeatToken(JSONParseFunc&& parser) {
-        return ParseResult{ .type = ParseResultType::NewParser_ReplayCurrent, .new_parser = std::move(parser) };
-    }
-
+        [[nodiscard]]
+        inline ParseResult NewParser(JSONParseFunc&& parser) {
+            return ParseResult{ .type = ParseResultType::NewParser, .new_parser = std::move(parser) };
+        }
+       
+        [[nodiscard]]
+        inline ParseResult NewParserRepeatToken(JSONParseFunc&& parser) {
+            return ParseResult{ .type = ParseResultType::NewParser_ReplayCurrent, .new_parser = std::move(parser) };
+        }
+       
         [[nodiscard]]
         inline ParseResult ParseString(std::string& target) {
-            return ParseResult{
-                .type = ParseResultType::NewParser,
-                .new_parser = [&target](const JSONToken& token) mutable {
-                    if (token.type == JSONTokenType::string) {
-                        target = std::get<std::string_view>(token.value);
-                        return ParserDone();
-                    }
-                    else {
-                        return ParseError("Unexpected data type");
-                    }
-                 }
-            };
+            return NewParser([&target](const JSONToken& token) mutable {
+                if (token.type == JSONTokenType::string) {
+                    target = std::get<std::string_view>(token.value);
+                    return ParserDone();
+                }
+                else {
+                    return ParseError("Unexpected data type");
+                }
+            });
         }
-
+       
         template <typename T>
         concept Numeric = std::integral<T> || std::floating_point<T>;
-
+       
         [[nodiscard]]
         inline ParseResult ParseNumber(Numeric auto& target) {
             using T = std::decay_t<decltype(target)>;
-            return ParseResult{
-                .type = ParseResultType::NewParser,
-                .new_parser = [&target](const JSONToken& token) mutable {
-                    if (token.type == JSONTokenType::number_integer) {
-                        int64_t val = std::get<int64_t>(token.value);
-                        if (val > std::numeric_limits<T>::max() || val < std::numeric_limits<T>::lowest()) {
-                            return ParseError("Number read is out of range for given type");
-                        }
-                        target = (T)val;
-                        return ParserDone();
-                    }
-                    else if (token.type == JSONTokenType::number_unsigned) {
-                        uint64_t val = std::get<uint64_t>(token.value);
-                        if (val > std::numeric_limits<T>::max()) {
-                            return ParseError("Number read is out of range for given type");
-                        }
-                        target = (T)val;
-                        return ParserDone();
-                    }
-                    else if (token.type == JSONTokenType::number_float) {
-                        if (std::is_integral_v<std::decay_t<decltype(target)>>) {
-                            return ParseError("Can't parse a floating point into an integral type");
-                        }
-                        double val = std::get<double>(token.value);
-                        if (val > std::numeric_limits<T>::max() || val < std::numeric_limits<T>::lowest()) {
-                            return ParseError("Number read is out of range for given type");
-                        }
-
-                        target = (T)val;
-                        return ParserDone();
-                    }
-                    else if (token.type == JSONTokenType::string) {
-                        const auto& data = std::get<std::string_view>(token.value);
-                        if (std::from_chars(data.data(), data.data() + data.size(), target).ec == std::errc{}) return ParserDone();
-                        else return ParseError("Failed parsing integer");
-                    }
-                    else {
-                        return ParseError("Unexpected token type");
-                    }
-                 }
-            };
+            return NewParser([&target](const JSONToken& token) mutable {
+                if (token.type == JSONTokenType::string) {
+                    const auto& data = std::get<std::string_view>(token.value);
+                    // Improve comparison once C++26 is available
+                    if (std::from_chars(data.data(), data.data() + data.size(), target).ec == std::errc{}) return ParserDone();
+                    else return ParseError("Failed parsing number");
+                }
+                else {
+                    return ParseError("Unexpected token type");
+                }
+            });
         }
 
 
         [[nodiscard]]
         inline ParseResult ParseBool(bool& target) {
-            return ParseResult{
-                .type = ParseResultType::NewParser,
-                .new_parser = [&target](const JSONToken& token) mutable {
-                    if (token.type == JSONTokenType::boolean) {
-                        target = std::get<bool>(token.value);
-                        return ParserDone();
-                    }
-                    else {
-                        return ParseError("Unexpected data type");
-                    }
-                 }
-            };
+            return NewParser([&target](const JSONToken& token) mutable {
+                if (token.type == JSONTokenType::boolean) {
+                    target = std::get<bool>(token.value);
+                    return ParserDone();
+                }
+                else {
+                    return ParseError("Unexpected data type");
+                }
+            });
         }
 
         template<typename COLLECTION>
             requires SaxContainer<COLLECTION>
         [[nodiscard]]
-        inline ParseResult ParseList(COLLECTION& collection, std::function<JSONParseFunc(typename COLLECTION::value_type&)>&& get_item_parser_func) {
-            return ParseResult{
-                .type = ParseResultType::NewParser,
-                .new_parser = [&collection, get_item_parser_func = std::move(get_item_parser_func), first = true](const JSONToken& token) mutable {
-                    if (first) {
-                        first = false;
-                        if (token.type != JSONTokenType::start_array) return ParseError("No open array token for list");
-                        else return KeepParsing();
-                    }
+        inline ParseResult ParseList(
+            COLLECTION& collection,
+            std::function<JSONParseFunc(typename COLLECTION::value_type&)>&& parser_factory)
+        {
+            return NewParser([&collection, parser_factory = std::move(parser_factory), first = true](const JSONToken& token) mutable {
+                if (first) {
+                    first = false;
+                    if (token.type != JSONTokenType::start_array) return ParseError("No open array token for list");
+                    else return KeepParsing();
+                }
+                else if (token.type == JSONTokenType::end_array) {
+                    return ParserDone();
+                }
+                else {
+                    return NewParserRepeatToken(parser_factory(collection.emplace_back()));
+                }
+                });
+        }
 
-                    if (token.type == JSONTokenType::end_array) {
-                        return ParserDone();
-                    }
-
-                    return ParseResult{.type = ParseResultType::NewParser_ReplayCurrent, .new_parser = get_item_parser_func(collection.emplace_back()) };
-                 }
-            };
+        template<typename T>
+        [[nodiscard]]
+        inline ParseResult ParseList(
+            std::function<JSONParseFunc(T&)>&& parser_factory)
+        {
+            return NewParser([item = T{}, parser_factory = std::move(parser_factory), first = true](const JSONToken& token) mutable {
+                if (first) {
+                    first = false;
+                    if (token.type != JSONTokenType::start_array) return ParseError("No open array token for list");
+                    else return KeepParsing();
+                }
+                else if (token.type == JSONTokenType::end_array) {
+                    return ParserDone();
+                }
+                else {
+                    item = T{};
+                    return NewParserRepeatToken(parser_factory(item));
+                }
+            });
         }
     } // namespace core
 
@@ -339,37 +323,41 @@ namespace bettercppsax {
     [[nodiscard]]
     inline auto SkipNextElement() {
         using namespace core;
-        return ParseResult{
-            .type = ParseResultType::NewParser,
-            .new_parser = [depth = 0](const JSONToken& token) mutable {
-                 switch (token.type) {
-                     case JSONTokenType::start_object:
-                     case JSONTokenType::start_array:
-                         depth++;
-                         break;
-                     case JSONTokenType::end_object:
-                     case JSONTokenType::end_array:
-                         depth--;
-                         break;
-                 }
-                 if (depth < 0) return ParseError("Malformed document while skiping element");
-                 return depth ? KeepParsing() : ParserDone();
+        return NewParser([depth = 0](const JSONToken& token) mutable {
+            switch (token.type) {
+                case JSONTokenType::start_object:
+                case JSONTokenType::start_array:
+                    depth++;
+                    break;
+                case JSONTokenType::end_object:
+                case JSONTokenType::end_array:
+                    depth--;
+                    break;
             }
-        };
+            if (depth < 0) return ParseError("Malformed document while skiping element");
+            return depth > 0 ? KeepParsing() : ParserDone();
+        });
     }
 
     template<typename OBJECT>
     [[nodiscard]]
-    inline auto ParseObject(OBJECT& object, const core::JSONObjectParser<OBJECT>& handler) {
+    inline auto ParseObject(
+        OBJECT& object, 
+        const core::JSONObjectParser<OBJECT>& handler, 
+        std::function<bool(const OBJECT&)> validator = [](const OBJECT&) { return true; }) 
+    {
         using namespace core;
         return NewParser(
-            [object, handler, first = true](const JSONToken& token) mutable {
+            [validator = std::move(validator), &object, handler, first = true](const JSONToken& token) mutable {
                 if (first) {
                     first = false;
                     if (token.type == JSONTokenType::start_object) return KeepParsing();
                     else return ParseError("Expected object start");
                 }
-                else if (token.type == JSONTokenType::end_object) return ParserDone();
+                else if (token.type == JSONTokenType::end_object) {
+                    if (validator(object))  return ParserDone();
+                    else return ParseError("Invalid object");
+                }
                 else if (token.type == JSONTokenType::key) {
                     return handler(std::get<std::string_view>(token.value), object);
                 }
@@ -377,26 +365,55 @@ namespace bettercppsax {
             }
         );
     }
+    using namespace core;
 
+    template <typename T>
+    using JSONScalarParser = std::function<ParseResult(T& target)>;
 
-
-
+    // ParseList for Scalars
     template<typename COLLECTION>
-        requires core::SaxContainer<COLLECTION>
+        requires SaxContainer<COLLECTION>
     [[nodiscard]]
-    inline auto ParseList(COLLECTION& collection, const core::JSONScalarParser<typename COLLECTION::value_type>& get_item_parser_func = ParseScalar<typename COLLECTION::value_type>) {
-        return core::ParseList(collection, [get_item_parser_func = std::move(get_item_parser_func)](typename COLLECTION::value_type& target) { return get_item_parser_func(target).new_parser.value(); });
+    inline auto ParseList(
+            COLLECTION& collection, 
+            const JSONScalarParser<typename COLLECTION::value_type>& item_parser = ParseScalar<typename COLLECTION::value_type>) 
+    {
+        return ParseList(
+                    collection, 
+                    [item_parser = std::move(item_parser)](typename COLLECTION::value_type& target) { 
+                        return item_parser(target).new_parser.value(); 
+            });
     }
 
+    // Parse List for Objects
     template<typename COLLECTION>
-        requires core::SaxContainer<COLLECTION>
+        requires SaxContainer<COLLECTION>
     [[nodiscard]]
-    inline auto ParseList(COLLECTION& collection, const core::JSONObjectParser<typename COLLECTION::value_type>& get_item_parser_func) {
-        using namespace core;
+    inline auto ParseList(
+        COLLECTION& collection, 
+        const JSONObjectParser<typename COLLECTION::value_type>& item_parser,
+        std::function<bool(const typename COLLECTION::value_type&)>&& validator 
+            = [](const typename COLLECTION::value_type&) { return true; }) 
+    {
         return ParseList(
             collection,
-            [get_item_parser_func = std::move(get_item_parser_func)](typename COLLECTION::value_type& target) {
-                return ParseObject(target, get_item_parser_func).new_parser.value();
+            [item_parser = std::move(item_parser), validator = std::move(validator)](typename COLLECTION::value_type& target) {
+                return ParseObject(target, item_parser, validator).new_parser.value();
+            }
+        );
+    }
+
+    // Parse List for Objects
+    template<typename T>
+    [[nodiscard]]
+    inline auto ParseList(
+        const JSONObjectParser<typename T>& item_parser,
+        std::function<bool(const T&)> validator) 
+    {
+        using namespace core;
+        return ParseList(
+            [item_parser = std::move(item_parser)](T& target) {
+                return ParseObject(target, item_parser, validator).new_parser.value();
             }
         );
     }
@@ -440,23 +457,3 @@ namespace bettercppsax {
     }
 
 }// namespace bettercppsax
-
-using namespace rapidjson;
-using Ch = char;
-
-class Handler {
-    bool Null();
-    bool Bool(bool b);
-    bool Int(int i);
-    bool Uint(unsigned i);
-    bool Int64(int64_t i);
-    bool Uint64(uint64_t i);
-    bool Double(double d);
-    bool RawNumber(const Ch* str, SizeType length, bool copy);
-    bool String(const Ch* str, SizeType length, bool copy);
-    bool StartObject();
-    bool Key(const Ch* str, SizeType length, bool copy);
-    bool EndObject(SizeType memberCount);
-    bool StartArray();
-    bool EndArray(SizeType elementCount);
-};
